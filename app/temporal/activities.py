@@ -46,6 +46,7 @@ def build_staff_alerts(result: AgentResult) -> list[StaffAlertNotification]:
     return notifications
 
 
+@activity.defn
 async def execute_approved_recommendation(
     result: AgentResult, approved: bool
 ) -> ExecutionReport:
