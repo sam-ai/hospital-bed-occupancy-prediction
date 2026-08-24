@@ -36,6 +36,27 @@ app = FastAPI(
 
 app.include_router(forecast_timeline_router)
 
+
+_temporal_client = None
+_temporal_client_lock: asyncio.Lock | None = None
+
+
+async def _get_temporal_client():
+    """Return a shared Temporal client, connecting lazily on first use."""
+    global _temporal_client, _temporal_client_lock
+    if _temporal_client is not None:
+        return _temporal_client
+    if _temporal_client_lock is None:
+        _temporal_client_lock = asyncio.Lock()
+    async with _temporal_client_lock:
+        if _temporal_client is None:
+            from temporalio.client import Client
+
+            _temporal_client = await Client.connect(
+                TEMPORAL_HOST, namespace=TEMPORAL_NAMESPACE
+            )
+    return _temporal_client
+
 # Allow Claw3D frontend (Next.js dev server) to connect
 app.add_middleware(
     CORSMiddleware,
@@ -600,17 +621,14 @@ async def websocket_simulation_endpoint(websocket: WebSocket) -> None:
                 approved = data.get("approved", False)
 
                 try:
-                    from temporalio.client import Client
                     from app.temporal.workflows import HospitalCapacityWorkflow
 
-                    client = await Client.connect(
-                        TEMPORAL_HOST, namespace=TEMPORAL_NAMESPACE
-                    )
+                    client = await _get_temporal_client()
                     handle = client.get_workflow_handle(workflow_id)
                     await handle.signal(
                         HospitalCapacityWorkflow.approve_recommendation, approved
                     )
-                    await manager.broadcast({
+                    await websocket.send_json({
                         "type": "APPROVAL_ACKNOWLEDGED",
                         "workflow_id": workflow_id,
                         "approved": approved,
@@ -662,10 +680,9 @@ async def trigger_capacity_check(request_data: HospitalRequest) -> dict:
     2. Broadcasts workflow status to all connected WebSocket clients
     3. Monitors workflow completion and streams simulation events
     """
-    from temporalio.client import Client
     from app.temporal.workflows import HospitalCapacityWorkflow
 
-    client = await Client.connect(TEMPORAL_HOST, namespace=TEMPORAL_NAMESPACE)
+    client = await _get_temporal_client()
     workflow_id = f"hospital-capacity-{request_data.request_id}"
 
     # Start Temporal Workflow
@@ -729,6 +746,29 @@ async def _stream_simulation(current_occupied: int, predicted_occupancy: float) 
 async def _monitor_and_stream(handle, workflow_id: str) -> None:
     """Monitor a Temporal workflow and stream results + simulation to frontend."""
     try:
+        from app.temporal.workflows import HospitalCapacityWorkflow
+
+        # Poll workflow phase so the UI gets the approval prompt *before*
+        # the workflow blocks waiting for the human signal.
+        approval_notified = False
+        while not approval_notified:
+            try:
+                status = await handle.query(HospitalCapacityWorkflow.status)
+            except Exception:
+                status = None
+
+            if status and status.get("phase") == "AWAITING_APPROVAL":
+                await manager.broadcast({
+                    "type": "REQUIRE_HUMAN_APPROVAL",
+                    "workflow_id": workflow_id,
+                    "recommendations": status.get("recommendations", []),
+                })
+                approval_notified = True
+                break
+            if status and status.get("phase") == "COMPLETED":
+                break
+            await asyncio.sleep(2)
+
         result = await handle.result()
 
         # Broadcast full agent result
@@ -738,15 +778,26 @@ async def _monitor_and_stream(handle, workflow_id: str) -> None:
             "data": result.model_dump(),
         })
 
-        # If policy requires approval, notify Claw3D UI
+        # Notify UI that approved recommendations were executed (staff alerts)
         if (
-            result.policy_decision
-            and result.policy_decision.decision == "HUMAN_APPROVAL"
+            result.execution_report
+            and result.execution_report.status == "EXECUTED"
         ):
+            from app.temporal.activities import build_staff_alerts
+
             await manager.broadcast({
-                "type": "REQUIRE_HUMAN_APPROVAL",
+                "type": "RECOMMENDATION_EXECUTED",
                 "workflow_id": workflow_id,
-                "recommendations": [r.model_dump() for r in result.recommendations],
+                "notifications": [
+                    {
+                        "recipient_role": n.recipient_role,
+                        "channel": n.channel,
+                        "priority": n.priority,
+                        "message_title": n.message_title,
+                        "message_body": n.message_body,
+                    }
+                    for n in build_staff_alerts(result)
+                ],
             })
 
         # Stream 3D simulation events based on forecast

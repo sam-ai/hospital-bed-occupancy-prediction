@@ -5,7 +5,8 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Text, Grid, Html, Billboard } from "@react-three/drei";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import * as THREE from "three";
-import { BedState, Patient3D, Staff3D, Position3D, FastTrackMatch } from "@/types/hospital";
+import { BedState, Patient3D, Staff3D, Position3D, FastTrackMatch, StaffNotification } from "@/types/hospital";
+import StaffAlertOverlay from "./StaffAlertOverlay";
 
 /* ── Bed type map (mirrors backend triage layout) ── */
 export const FLOOR_BED_TYPES: Record<string, string> = {
@@ -38,6 +39,10 @@ interface HospitalFloorProps {
   fastTrackMatches?: FastTrackMatch[];
   /** External request to focus the camera on a specific bed (from UI tables). */
   focusBedId?: { bedId: string; token: number } | null;
+  /** Executed staff alerts to show as an in-scene overlay. */
+  staffAlerts?: StaffNotification[];
+  /** Token bumping each new staff-alert batch. */
+  staffAlertsToken?: number;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1030,6 +1035,8 @@ function Scene({
   lastEvent,
   fastTrackMatches = [],
   focusBedId = null,
+  staffAlerts = [],
+  staffAlertsToken = 0,
 }: HospitalFloorProps) {
   const t = THEME[theme];
   const halfW = FLOOR_W / 2;
@@ -1172,6 +1179,7 @@ function Scene({
 
       <GhostBeds patients={patients} beds={beds} />
       <EventTicker lastEvent={lastEvent} />
+      <StaffAlertOverlay alerts={staffAlerts} token={staffAlertsToken} />
       <StepClock playbackInfo={playbackInfo} />
       <CameraRig focus={focus} />
 
@@ -1200,6 +1208,8 @@ export default function HospitalFloor({
   lastEvent = null,
   fastTrackMatches = [],
   focusBedId = null,
+  staffAlerts = [],
+  staffAlertsToken = 0,
 }: HospitalFloorProps) {
   const t = THEME[theme];
   return (
@@ -1220,6 +1230,8 @@ export default function HospitalFloor({
             lastEvent={lastEvent}
             fastTrackMatches={fastTrackMatches}
             focusBedId={focusBedId}
+            staffAlerts={staffAlerts}
+            staffAlertsToken={staffAlertsToken}
           />
           <EffectComposer>
             <Bloom intensity={0.55} luminanceThreshold={0.55} luminanceSmoothing={0.3} mipmapBlur />

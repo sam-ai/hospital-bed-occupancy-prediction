@@ -154,6 +154,8 @@ export default function Dashboard() {
   const [dataRegime, setDataRegime] = useState("outbreak_surge");
   const [regimeChanging, setRegimeChanging] = useState(false);
   const [focusBedRequest, setFocusBedRequest] = useState<{ bedId: string; token: number } | null>(null);
+  const [staffAlerts, setStaffAlerts] = useState<StaffNotification[]>([]);
+  const [staffAlertsToken, setStaffAlertsToken] = useState(0);
 
   const handleFocusBed = useCallback((bedId: string) => {
     setFocusBedRequest({ bedId, token: Date.now() });
@@ -397,6 +399,13 @@ export default function Dashboard() {
         case "APPROVAL_ACKNOWLEDGED": setApprovalRequest(null); setLastEvent(`Approved: ${data.workflow_id}`); break;
         case "WORKFLOW_STARTED": setLastEvent(`Workflow: ${data.workflow_id}`); break;
         case "AGENT_RESULT_READY": setLastEvent(`Result: ${data.workflow_id}`); break;
+        case "RECOMMENDATION_EXECUTED":
+          if (Array.isArray(data.notifications) && data.notifications.length) {
+            setStaffAlerts(data.notifications);
+            setStaffAlertsToken(Date.now());
+            setLastEvent(`Executed: ${data.notifications.length} staff alert(s) dispatched`);
+          }
+          break;
       }
     };
     ws.onclose = () => setIsConnected(false);
@@ -651,6 +660,8 @@ export default function Dashboard() {
               lastEvent={lastEvent}
               fastTrackMatches={fastTrackResult?.matches ?? []}
               focusBedId={focusBedRequest}
+              staffAlerts={staffAlerts}
+              staffAlertsToken={staffAlertsToken}
             />
           </Scene3DErrorBoundary>
         )}

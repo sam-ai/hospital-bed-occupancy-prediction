@@ -140,6 +140,14 @@ class PolicyDecision(BaseModel):
     policy_version: str
 
 
+class ExecutionReport(BaseModel):
+    """Outcome of executing an approved recommendation."""
+
+    status: Literal["EXECUTED", "REJECTED", "SKIPPED"]
+    dispatched_at: str
+    notifications_sent: list[dict[str, str]] = Field(default_factory=list)
+
+
 class AgentResult(BaseModel):
     """Final output of the hospital capacity agent pipeline."""
     request_id: str
@@ -156,3 +164,4 @@ class AgentResult(BaseModel):
     policy_decision: PolicyDecision | None = None
     recommendation_summary: str = ""
     confidence: float = 0.0
+    execution_report: ExecutionReport | None = None

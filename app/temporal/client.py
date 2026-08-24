@@ -35,10 +35,28 @@ async def start_workflow() -> None:
 
     print(f"[+] Workflow started. Waiting for agent execution...")
 
-    # Simulate sending a human approval signal after a 3-second delay
-    await asyncio.sleep(3)
-    print(f"[!] Sending Human Approval Signal (APPROVED=True) to Workflow...")
-    await handle.signal(HospitalCapacityWorkflow.approve_recommendation, True)
+    # Simulate a human approval signal, but only when policy actually
+    # requires it (phase may lag while the agent activity is still running).
+    approval_sent = False
+    status: dict | None = None
+    for _ in range(30):
+        await asyncio.sleep(2)
+        try:
+            status = await handle.query(HospitalCapacityWorkflow.status)
+        except Exception:
+            continue
+        if status.get("phase") == "AWAITING_APPROVAL":
+            print(f"[!] Policy requires approval — sending APPROVED=True signal...")
+            await handle.signal(HospitalCapacityWorkflow.approve_recommendation, True)
+            approval_sent = True
+            break
+        if status.get("phase") == "COMPLETED":
+            print(f"[i] Policy decision was ALLOW — no approval signal needed.")
+            break
+    if not approval_sent and (status is None or status.get("phase") != "COMPLETED"):
+        # Fallback: workflow never reached a known phase within timeout window.
+        print(f"[!] Phase unknown after retries — sending approval signal anyway.")
+        await handle.signal(HospitalCapacityWorkflow.approve_recommendation, True)
 
     # Fetch final result
     result = await handle.result()
