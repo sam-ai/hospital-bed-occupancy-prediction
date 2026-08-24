@@ -272,6 +272,94 @@ docker compose ps
 #    - Temporal Dashboard: http://localhost:8080
 ```
 
+---
+
+## Local Startup Guide — 6 Backend Services (Docker) + UI (Local Node)
+
+Run everything in Docker **except** the Next.js UI, which runs locally via Node for hot-reload during development.
+
+### Prerequisites
+
+- Docker Desktop (or Engine + Compose v2) running
+- A `.env` file at project root with at least `GOOGLE_API_KEY=<your-key>`
+  *(optional: `OPENAI_API_KEY`, `USE_LLM=true` — without keys the platform runs on deterministic fallbacks)*
+- Node.js 18+ (for the UI)
+- Free ports: 5432, 9200, 7233, 8080, 8000, 3000
+
+### Step-by-step
+
+```bash
+# 1. Infrastructure first — wait until healthy before continuing
+docker compose up -d postgresql elasticsearch temporal
+docker compose ps          # hospital-postgres & hospital-elasticsearch should show "(healthy)"
+
+# 2. Temporal debug UI (optional but recommended)
+docker compose up -d temporal-ui        # http://localhost:8080
+
+# 3. Backend services
+#    First build can take several minutes (torch CPU wheel is cached per-layer).
+docker compose up -d --build fastapi-gateway temporal-worker
+
+# 4. Verify everything
+docker compose ps                        # 6 containers Up
+curl http://localhost:8000/api/health    # {"status": "healthy", ...}
+curl http://localhost:9200/_cluster/health | grep status   # "yellow"/"green" is fine
+
+# 5. Seed demo data + generate forecasts
+uv run python scripts/generate_mock_data_10_beds.py --scenario outbreak_surge
+uv run python scripts/ingest_to_elasticsearch.py
+
+# Trigger today's forecast via the Temporal schedule
+# (first run downloads the TimesFM model ~200MB into the hf-cache volume)
+uv run python -c "
+import asyncio
+from temporalio.client import Client
+async def main():
+    c = await Client.connect('localhost:7233', namespace='default')
+    await c.get_schedule_handle('daily-forecast-9am').trigger()
+    print('triggered')
+asyncio.run(main())
+"
+
+# 6. Run the UI locally (NOT in docker)
+cd frontend
+npm install
+npm run dev              # http://localhost:3000
+```
+
+### What you should see
+
+| Check | Expected |
+|---|---|
+| `docker compose ps` | 6 containers Up, postgres/ES healthy |
+| Worker logs (`docker compose logs -f temporal-worker`) | `[✓] Created schedule …` ×4, then `Listening for tasks...` |
+| `GET /api/forecast/multi-horizon` | forecast points ~1–2 min after step 5's trigger |
+| http://localhost:3000 | 3D floor with all sidebar panels |
+
+### Registered cron schedules (auto-created by the worker)
+
+| Schedule | Cron | Produces |
+|----------|------|----------|
+| `daily-forecast-9am` | `0 9 * * *` | 24H hourly occupancy forecast |
+| `weekly-forecast-mon-8am` | `0 8 * * 1` | 7-day daily forecast |
+| `monthly-forecast-1st-8am` | `0 8 1 * *` | 6-month trend forecast |
+| `nightly-accuracy-2350` | `50 23 * * *` | Forecast-vs-actual accuracy scoring |
+
+### Common gotchas
+
+- **First forecast is slow** — TimesFM model download (~200MB); cached afterwards in the shared `hf-cache` volume (gateway + worker)
+- **"No Workers polling"** in the Temporal UI → worker crashed on startup; check `docker compose logs temporal-worker`
+- **Elasticsearch won't start** (Linux hosts) — raise `vm.max_map_count`: `sudo sysctl -w vm.max_map_count=262144`, then retry
+- Port conflicts → stop any local Postgres/Elasticsearch instances first
+
+### Stop & clean up
+
+```bash
+docker compose stop claw3d-frontend   # keep the app UI out of the way if it was started
+docker compose down                   # stop all containers
+docker compose down -v                # stop + remove volumes (full reset incl. ES data)
+```
+
 ### Docker Compose Lifecycle
 
 1. Open `http://localhost:3000` in your browser
