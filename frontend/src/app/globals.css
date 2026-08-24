@@ -1,0 +1,369 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0b1118;
+  --foreground: #f0f6ff;
+  --card: #121a24;
+  --card-foreground: #f0f6ff;
+  --primary: #22a8cc;
+  --primary-foreground: #f0f6ff;
+  --muted: rgba(108, 146, 176, 0.12);
+  --muted-foreground: rgba(224, 236, 248, 0.78);
+  --border: rgba(108, 146, 176, 0.30);
+  --input: rgba(108, 146, 176, 0.22);
+  --ring: #30bce2;
+  --destructive: oklch(0.62 0.21 22);
+  --destructive-foreground: rgba(255, 255, 255, 0.96);
+  --surface-0: #0b1118;
+  --surface-1: #121a24;
+  --surface-2: #1a2533;
+  --surface-3: #223142;
+  --surface-selected: #26384c;
+  --panel: #131c27;
+  --panel-border: rgba(108, 146, 176, 0.36);
+  --action-bg: #1d8fb5;
+  --action-bg-hover: #219fc7;
+  --action-border: rgba(34, 168, 204, 0.68);
+  --action-fg: #f0f6ff;
+  --danger-soft-bg: rgba(220, 50, 50, 0.18);
+  --danger-soft-border: rgba(220, 50, 50, 0.42);
+  --danger-soft-fg: rgba(248, 110, 110, 0.82);
+  --status-idle-bg: rgba(34, 49, 66, 0.66);
+  --status-idle-border: rgba(60, 90, 118, 0.78);
+  --status-idle-fg: rgba(246, 250, 255, 0.92);
+  --status-running-bg: rgba(32, 170, 104, 0.22);
+  --status-running-border: rgba(46, 197, 122, 0.46);
+  --status-running-fg: rgba(123, 227, 173, 0.68);
+  --status-connected-bg: rgba(35, 145, 153, 0.24);
+  --status-connected-border: rgba(39, 168, 176, 0.52);
+  --status-connected-fg: rgba(155, 229, 232, 0.68);
+  --status-disconnected-bg: rgba(34, 49, 66, 0.66);
+  --status-disconnected-border: rgba(60, 90, 118, 0.78);
+  --status-disconnected-fg: rgba(246, 250, 255, 0.92);
+  --status-approval-bg: rgba(167, 113, 19, 0.26);
+  --status-approval-border: rgba(198, 133, 24, 0.48);
+  --status-approval-fg: rgba(242, 201, 134, 0.68);
+  --font-display: "Bebas Neue", sans-serif;
+  --font-sans: "IBM Plex Sans", sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+  --radius-small: 6px;
+  --radius-card: 14px;
+  --radius-container: 20px;
+  --shadow-color: oklch(0.08 0.012 250);
+  --3d-bg: #0b1118;
+}
+
+/* Light mode overrides */
+html.light {
+  --background: #f7f9fc;
+  --foreground: #1b2130;
+  --card: #ffffff;
+  --card-foreground: #1b2130;
+  --primary: oklch(0.56 0.1 214);
+  --primary-foreground: #f0f6ff;
+  --muted: rgba(90, 132, 154, 0.11);
+  --muted-foreground: rgba(55, 65, 81, 0.85);
+  --border: rgba(90, 132, 154, 0.22);
+  --input: rgba(90, 132, 154, 0.15);
+  --ring: oklch(0.56 0.1 214);
+  --destructive: oklch(0.58 0.22 22);
+  --destructive-foreground: #ffffff;
+  --surface-0: #f7f9fc;
+  --surface-1: #ffffff;
+  --surface-2: rgba(90, 132, 154, 0.08);
+  --surface-3: rgba(90, 132, 154, 0.14);
+  --surface-selected: rgba(90, 132, 154, 0.20);
+  --panel: #ffffff;
+  --panel-border: rgba(90, 132, 154, 0.22);
+  --action-bg: oklch(0.56 0.1 214);
+  --action-bg-hover: oklch(0.52 0.1 214);
+  --action-border: rgba(56, 152, 196, 0.45);
+  --action-fg: #ffffff;
+  --danger-soft-bg: rgba(220, 38, 38, 0.08);
+  --danger-soft-border: rgba(220, 38, 38, 0.25);
+  --danger-soft-fg: rgba(185, 28, 28, 0.9);
+  --status-idle-bg: rgba(100, 116, 139, 0.10);
+  --status-idle-border: rgba(100, 116, 139, 0.25);
+  --status-idle-fg: rgba(51, 65, 85, 0.92);
+  --status-running-bg: rgba(22, 163, 74, 0.10);
+  --status-running-border: rgba(22, 163, 74, 0.30);
+  --status-running-fg: rgba(22, 101, 52, 0.88);
+  --status-connected-bg: rgba(14, 116, 144, 0.10);
+  --status-connected-border: rgba(14, 116, 144, 0.30);
+  --status-connected-fg: rgba(15, 98, 120, 0.88);
+  --status-disconnected-bg: rgba(100, 116, 139, 0.10);
+  --status-disconnected-border: rgba(100, 116, 139, 0.25);
+  --status-disconnected-fg: rgba(51, 65, 85, 0.92);
+  --status-approval-bg: rgba(180, 83, 9, 0.10);
+  --status-approval-border: rgba(180, 83, 9, 0.30);
+  --status-approval-fg: rgba(146, 64, 14, 0.88);
+  --3d-bg: #e2e8f0;
+}
+
+html {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans), sans-serif;
+  letter-spacing: 0.005em;
+  min-height: 100vh;
+  background: var(--background);
+  color: var(--foreground);
+  transition: background-color 200ms ease, color 200ms ease;
+}
+
+/* Scrollbar styling */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(150, 160, 175, 0.35) transparent;
+}
+
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: rgba(150, 160, 175, 0.35);
+  border-radius: 999px;
+  border: 2px solid transparent;
+}
+
+/* Glass panel */
+.glass-panel {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-container);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.16);
+  transition: background-color 200ms ease, border-color 200ms ease;
+}
+
+/* UI Panel */
+.ui-panel {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-card);
+  box-shadow: 0 7px 18px -9px rgba(0, 0, 0, 0.35);
+  transition: background-color 200ms ease, border-color 200ms ease;
+}
+
+/* Sidebar cards */
+.sidebar-card {
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-card);
+  background: var(--surface-2);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  transition: background-color 200ms ease, border-color 200ms ease;
+}
+
+/* Buttons */
+.sidebar-btn-primary {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-small);
+  border: 1px solid var(--action-border);
+  background: var(--action-bg);
+  color: var(--action-fg);
+  padding: 0 16px;
+  font-weight: 600;
+  font-size: 0.875rem;
+  transition: background-color 180ms ease, color 180ms ease;
+  cursor: pointer;
+}
+.sidebar-btn-primary:hover { background: var(--action-bg-hover); }
+.sidebar-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.sidebar-btn-ghost {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-small);
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--muted-foreground);
+  padding: 0 16px;
+  font-size: 0.875rem;
+  transition: background-color 180ms ease, color 180ms ease, border-color 180ms ease;
+  cursor: pointer;
+}
+.sidebar-btn-ghost:hover {
+  background: var(--surface-2);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);
+}
+.sidebar-btn-ghost:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.sidebar-btn-danger {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-small);
+  border: 1px solid var(--danger-soft-border);
+  background: var(--danger-soft-bg);
+  color: var(--danger-soft-fg);
+  padding: 0 16px;
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+.sidebar-btn-danger:hover { background: rgba(220, 50, 50, 0.25); }
+
+/* Theme toggle button */
+.theme-toggle {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-small);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted-foreground);
+  padding: 0 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  gap: 6px;
+  cursor: pointer;
+  transition: background-color 180ms ease, color 180ms ease, border-color 180ms ease;
+}
+.theme-toggle:hover {
+  background: var(--surface-3);
+  color: var(--foreground);
+}
+
+/* Badges */
+.ui-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-small);
+  padding: 0.18rem 0.58rem;
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.045em;
+  line-height: 1.1;
+}
+
+.ui-badge-status-idle {
+  border: 1px solid var(--status-idle-border);
+  background: var(--status-idle-bg);
+  color: var(--status-idle-fg);
+}
+
+.ui-badge-status-running {
+  border: 1px solid var(--status-running-border);
+  background: var(--status-running-bg);
+  color: var(--status-running-fg);
+}
+
+.ui-badge-status-error {
+  border: 1px solid var(--danger-soft-border);
+  background: var(--danger-soft-bg);
+  color: var(--danger-soft-fg);
+}
+
+.ui-badge-status-connected {
+  border: 1px solid var(--status-connected-border);
+  background: var(--status-connected-bg);
+  color: var(--status-connected-fg);
+}
+
+.ui-badge-status-disconnected {
+  border: 1px solid var(--status-disconnected-border);
+  background: var(--status-disconnected-bg);
+  color: var(--status-disconnected-fg);
+}
+
+.ui-badge-status-approval {
+  border: 1px solid var(--status-approval-border);
+  background: var(--status-approval-bg);
+  color: var(--status-approval-fg);
+}
+
+/* Status dots */
+.ui-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+.ui-dot-connected { background: var(--status-connected-fg); }
+.ui-dot-disconnected { background: var(--status-disconnected-fg); }
+
+.status-ping {
+  animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* Typography */
+.type-page-title {
+  font-family: var(--font-display), sans-serif;
+  font-size: 28px;
+  font-weight: 400;
+  line-height: 1.16;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.type-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
+}
+
+.type-body {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.68;
+}
+
+.type-meta {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.35;
+  letter-spacing: 0.01em;
+}
+
+/* Animations */
+.fade-up {
+  animation: fadeUp 540ms cubic-bezier(0.2, 0.74, 0.2, 1) both;
+}
+
+.fade-up-delay {
+  animation: fadeUp 540ms cubic-bezier(0.2, 0.74, 0.2, 1) 120ms both;
+}
+
+.typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.typing-dots > span {
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  background: currentColor;
+  opacity: 0.28;
+  animation: typingPulse 960ms ease-in-out infinite;
+}
+.typing-dots > span:nth-child(2) { animation-delay: 160ms; }
+.typing-dots > span:nth-child(3) { animation-delay: 320ms; }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes typingPulse {
+  0%, 80%, 100% { opacity: 0.28; transform: translateY(0); }
+  40% { opacity: 0.95; transform: translateY(-1px); }
+}
+
+@keyframes ping {
+  75%, 100% { transform: scale(2); opacity: 0; }
+}
+
+.lucide { stroke-width: 1.75; }

@@ -1,0 +1,32 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies first (cache-friendly layer)
+# Torch is installed separately from the CPU-only wheel index to avoid
+# pulling multi-GB CUDA/NVIDIA dependencies into the image.
+COPY backend/pyproject.toml ./pyproject.toml
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir .
+
+# Copy application source code
+COPY app/ ./app/
+
+# Copy mock data (for simulation without real hospital systems)
+COPY data/ ./data/
+
+# Create directories for volume mount targets (dev mode)
+RUN mkdir -p /app/app /app/data
+
+# Expose FastAPI Gateway port
+EXPOSE 8000
+
+# Default command (overridden in docker-compose for specific services)
+CMD ["uvicorn", "app.api.gateway:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

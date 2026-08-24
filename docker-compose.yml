@@ -1,0 +1,174 @@
+networks:
+  hospital-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  elasticsearch-data:
+  hf-cache:
+
+services:
+  # =========================================================================
+  # 1. DATABASE LAYER FOR TEMPORAL
+  # =========================================================================
+  postgresql:
+    image: postgres:15-alpine
+    container_name: hospital-postgres
+    environment:
+      - POSTGRES_USER=temporal
+      - POSTGRES_PASSWORD=temporal
+      - POSTGRES_DB=temporal
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - hospital-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal -d temporal"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.20
+    container_name: hospital-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - xpack.security.enabled=false
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    networks:
+      - hospital-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # =========================================================================
+  # 2. TEMPORAL SERVER & UI
+  # =========================================================================
+  temporal:
+    image: temporalio/auto-setup:1.24.2
+    container_name: hospital-temporal-server
+    ports:
+      - "7233:7233"
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+      - POSTGRES_SEEDS=postgresql
+      - ENABLE_ES=true
+      - ES_SEEDS=elasticsearch
+      - ES_PORT=9200
+    networks:
+      - hospital-network
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+
+  temporal-ui:
+    image: temporalio/ui:2.28.0
+    container_name: hospital-temporal-ui
+    ports:
+      - "8080:8080"
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:8080
+    networks:
+      - hospital-network
+    depends_on:
+      - temporal
+
+  # =========================================================================
+  # 3. APPLICATION BACKEND (TEMPORAL WORKER & FASTAPI GATEWAY)
+  # =========================================================================
+  fastapi-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: hospital-fastapi-gateway
+    command: uvicorn app.api.gateway:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    environment:
+      - TEMPORAL_HOST=temporal:7233
+      - TEMPORAL_NAMESPACE=default
+      - TEMPORAL_TASK_QUEUE=hospital-ai-queue
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - GOOGLE_MODEL=${GOOGLE_MODEL:-gemini-2.0-flash}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-deepseek-ai/DeepSeek-V4-Pro-0813}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://inference.baseten.co/v1}
+      - USE_LLM=${USE_LLM:-true}
+    volumes:
+      - ./app:/app/app
+      - ./data:/app/data
+      - hf-cache:/root/.cache/huggingface
+    networks:
+      - hospital-network
+    depends_on:
+      - temporal
+    restart: on-failure
+
+  temporal-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: hospital-temporal-worker
+    command: watchfiles --filter python 'python -m app.temporal.worker' app/
+    environment:
+      - TEMPORAL_HOST=temporal:7233
+      - TEMPORAL_NAMESPACE=default
+      - TEMPORAL_TASK_QUEUE=hospital-ai-queue
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - GOOGLE_MODEL=${GOOGLE_MODEL:-gemini-2.0-flash}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-deepseek-ai/DeepSeek-V4-Pro-0813}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://inference.baseten.co/v1}
+      - USE_LLM=${USE_LLM:-true}
+    volumes:
+      - ./app:/app/app
+      - ./data:/app/data
+      - hf-cache:/root/.cache/huggingface
+    networks:
+      - hospital-network
+    depends_on:
+      - temporal
+      - fastapi-gateway
+    restart: on-failure
+
+  # =========================================================================
+  # 4. APPLICATION FRONTEND (CLAW3D 3D VISUALIZATION)
+  # =========================================================================
+  claw3d-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.frontend
+    container_name: hospital-claw3d-frontend
+    command: sh -c "rm -rf /app/.next && npm run dev"
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_WS_URL=ws://localhost:8000/ws/simulation
+      - WATCHPACK_POLLING=true
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/next.config.ts:/app/next.config.ts
+      - ./frontend/tsconfig.json:/app/tsconfig.json
+    networks:
+      - hospital-network
+    depends_on:
+      - fastapi-gateway
+    restart: on-failure

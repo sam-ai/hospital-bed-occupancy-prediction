@@ -1,0 +1,25 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Secrets & environment
+.env
+
+# OS / editor noise
+.DS_Store
+
+# Node / Next.js
+node_modules/
+.next/
+
+# Large non-app materials
+*.zip
+Claw3D/
+file_analysis/
