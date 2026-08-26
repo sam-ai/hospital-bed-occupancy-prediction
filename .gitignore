@@ -23,3 +23,6 @@ node_modules/
 *.zip
 Claw3D/
 file_analysis/
+
+# AAVA agent output (generated at runtime, not source)
+aava_output/

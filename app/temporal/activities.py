@@ -4,6 +4,7 @@ from temporalio import activity
 
 from app.agents.hospital_graph import hospital_agent_graph
 from app.communications.dispatcher import MultiChannelDispatcher
+from app.integrations.briefing_agent import CapacityBriefing, generate_capacity_briefing
 from app.models import AgentResult, ExecutionReport, HospitalRequest
 from app.models.triage import StaffAlertNotification
 
@@ -70,6 +71,21 @@ async def execute_approved_recommendation(
         dispatched_at=datetime.now(timezone.utc).isoformat(),
         notifications_sent=sent,
     )
+
+
+@activity.defn
+async def generate_daily_briefing(result: AgentResult) -> CapacityBriefing:
+    """Call the AAVA Daily Hospital Capacity Briefing Agent for this result."""
+    activity.logger.info(
+        "Requesting AAVA capacity briefing for %s/%s", result.hospital_id, result.unit_id
+    )
+    briefing = await generate_capacity_briefing(result)
+    activity.logger.info(
+        "Briefing received: riskLevel=%s requiresAttention=%s",
+        briefing.riskLevel,
+        briefing.requiresAttention,
+    )
+    return briefing
 
 
 @activity.defn
