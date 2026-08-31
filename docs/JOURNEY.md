@@ -15,6 +15,7 @@ Browser (:3000)                FastAPI Gateway (:8000)         Temporal (:7233)
      │── GET /api/forecast/* ────────│── ES queries (:9200) ─────────│
      │── POST /api/trigger-capacity ─│── start_workflow ─────────────│
      │── POST /api/mock/regenerate ──│── ES bulk + forecast trigger ─│
+     │── POST /api/briefing ─────────│── LangGraph pipeline → AAVA ──│
      │── WS SUBMIT_HUMAN_APPROVAL ──│── handle.signal() ────────────│
 ```
 
@@ -39,6 +40,7 @@ Browser (:3000)                FastAPI Gateway (:8000)         Temporal (:7233)
 | 13 | **Regime switch (admin)** | `Data Regime` select (`:491`) | `POST /mock/regenerate {scenario, days:30, trigger_forecast:true}` | `gateway.py:414` delete `ICU-EAST` → `async_bulk` → `DailyForecastWorkflow` → `MOCK_REGIME_CHANGED` | Toast + "open Forecast Timeline and hit Refresh" |
 | 14 | **What-if / Backtest** | Chart sliders → `Run` / `Backtest` | `POST /scenario {bed_delta, deferral, surge}` + `POST /backtest {days:14}` | `timeline_router.py:194,222` | Scenario orange line + summary chips; model comparison table |
 | 15 | **Reset** | `↺ Reset Floor` (`:527`) | local `setBeds(generateInitialBeds)` | — | Beds 5 occ / 3 queued (but server `sim_engine` not reset) |
+| 16 | **AI Capacity Briefing** | `AI Capacity Briefing` btn (`page.tsx:658`) → `fetchBriefing(selectedWard)` | `POST /api/briefing {unit_id:selectedWard}` (`page.tsx:172`) | `gateway.py:850` `_run_briefing` → `hospital_agent_graph.ainvoke` (LangGraph + TimesFM) → `generate_capacity_briefing` (AAVA agent 56091) → saves to `aava_output/` | `BriefingPanel` (top-right) shows risk badge, attention flag, natural-language briefing, and the signals sent to AAVA |
 
 ---
 
@@ -80,7 +82,7 @@ Browser (:3000)                FastAPI Gateway (:8000)         Temporal (:7233)
 | Click "Forecast Timeline" button | `page.tsx:631-633` |
 | `ForecastTimelineChart` mounts, fetches: | `Chart:262-284` |
 | — `GET /api/forecast/multi-horizon?horizon_type=24H` | |
-| — `GET /api/forecast/history-dates?horizon_type=24H` | |
+| — `GET /api/forecast/history-dates?horizon_type=24H` (lists selectable back-dated forecast days) | |
 | — `GET /api/forecast/accuracy?horizon_type=24H&unit_id={ward}` | `Chart:314` |
 | — `GET /api/forecast/patient-flow?days=7&unit_id={ward}` | `Chart:254` |
 | Chart renders line + confidence band + anomaly dots | `Chart:880-976` |
@@ -291,6 +293,48 @@ Browser (:3000)                FastAPI Gateway (:8000)         Temporal (:7233)
 
 ---
 
+### 16. AI Capacity Briefing (AAVA)
+
+| What happens | Where |
+|---|---|
+| Click "AI Capacity Briefing" button (purple, sidebar) | `page.tsx:658-660` |
+| `fetchBriefing(selectedWard)` opens the panel + `POST /api/briefing {unit_id}` | `page.tsx:172-188` |
+| Gateway `_run_briefing` runs the full LangGraph pipeline for the ward | `gateway.py:850-882` |
+| — `hospital_agent_graph.ainvoke` (wrangling → monitoring → forecast/**TimesFM** → anomaly → recommendation → synthesize) | `agents/hospital_graph.py` |
+| — `build_briefing_input(agent_result)` builds the AAVA payload | `integrations/briefing_agent.py` |
+| — `generate_capacity_briefing` submits to AAVA agent (`AAVA_BRIEFING_AGENT_ID=56091`), polls to SUCCESS, saves JSON | `integrations/aava_client.py`, `briefing_agent.py` |
+| Request/response persisted to `aava_output/<hospital>_<unit>_<ts>.json` | `briefing_agent.py:save_briefing_output` |
+| `BriefingPanel` renders risk badge + briefing text + input snapshot | `components/BriefingPanel.tsx` |
+
+**Endpoints:** `GET /api/briefing?unit_id={ward}` (curl/browser) and `POST /api/briefing` (UI). Both accept `hospital_id`, `unit_id`, `objective`; return `{status, aava_input, briefing{briefing, riskLevel, requiresAttention, requestId, timestamp}}`. Runs are serialized behind `_briefing_lock`.
+
+**Env required (compose passes these to `fastapi-gateway` + `temporal-worker`):**
+`AAVA_BASE_URL`, `AAVA_API_KEY`, `AAVA_BRIEFING_AGENT_ID`, `AAVA_POLL_INTERVAL_SECONDS`, `AAVA_POLL_TIMEOUT_SECONDS`. The `./aava_output:/app/aava_output` volume persists briefings to the host.
+
+**Performance note:** each briefing re-runs the entire forecast pipeline (CPU TimesFM inference + Gemini recommendation) *before* the AAVA call, so it takes ~1–3 min — the AAVA call itself is fast. The panel shows a spinner during the run and a clean error if AAVA is unreachable.
+
+**Expected:** Panel appears top-right showing "Running pipeline & querying AAVA…", then a colour-coded risk badge (LOW/MEDIUM/HIGH/CRITICAL), an attention indicator, the briefing paragraph, and a "Signals sent to AAVA" summary. Regenerate (↻) re-runs for the selected ward.
+
+---
+
+## Data & tooling (seeding, back-dated forecasts, briefing)
+
+Helper scripts added for multi-ward seeding and historical-anchor forecasts:
+
+| Script | Purpose |
+|---|---|
+| `scripts/seed_all_wards.py` | Seeds all 4 wards (snapshots) + triggers forecasts per ward. Flags: `--scenario`, `--days`, `--horizons 24H 7D 6M`, `--no-seed`, `--no-forecast`, `--stale-units`. Purges legacy `FLOOR-1` docs. |
+| `scripts/backdate_forecasts.py` | Generates 24H forecasts anchored at the last N days per ward (`--days-back 5`), tagged with each day's `forecast_date`, so `GET /api/forecast/multi-horizon?date=YYYY-MM-DD` and `/history-dates` return real back-dated data (append-only; never overwrites today). |
+| `scripts/backfill_earlier_days.py` | Append-only: adds earlier-day snapshots by shifting timestamps back (dry-run by default; `--commit` to write; skips on id collisions). |
+
+Backend changes enabling the above (all backward-compatible):
+- `fetch_snapshots_from_elasticsearch(..., as_of=None)` — optional cutoff so the context window ends at a past date.
+- `index_multi_horizon_forecasts_to_elasticsearch(..., forecast_date=None)` — optional date override so back-dated forecasts get their own doc IDs.
+
+`docker-compose.yml`: `fastapi-gateway` and `temporal-worker` now receive the `AAVA_*` env vars and mount `./aava_output:/app/aava_output` so briefings persist to the host.
+
+---
+
 ## Quick reference: UI controls
 
 | Control | Location | Action |
@@ -300,6 +344,7 @@ Browser (:3000)                FastAPI Gateway (:8000)         Temporal (:7233)
 | "Replay 24H Timeline" | Left panel | Replays full 24-step animation |
 | "ER Fast-Track Admissions" | Left panel | Opens ER boarder panel |
 | "Forecast Timeline" | Left panel | Opens forecast chart + flow card |
+| "AI Capacity Briefing" | Left panel | Runs the ward pipeline → AAVA, shows briefing panel |
 | "Reset Floor" | Left panel | Returns floor to initial state |
 | Data Regime dropdown | Left panel | Switches mock data scenario |
 | Forecast chart scrubber | Chart bottom | Drag to explore forecast steps |

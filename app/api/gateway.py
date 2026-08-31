@@ -827,3 +827,99 @@ async def health_check() -> dict:
         "service": "Hospital AI Agent Gateway",
         "connected_clients": len(manager.active_connections),
     }
+
+
+# ============================================================================
+# AAVA DAILY CAPACITY BRIEFING
+# ============================================================================
+# Runs a real ward through the LangGraph pipeline to produce an AgentResult,
+# then calls the AAVA-hosted Daily Hospital Capacity Briefing Agent and returns
+# the natural-language briefing. The heavy pipeline run (TimesFM) is serialized
+# behind a lock so concurrent requests don't thrash the model.
+_briefing_lock: asyncio.Lock | None = None
+
+
+class BriefingRequestBody(BaseModel):
+    hospital_id: str = "HOSPITAL-MAIN-01"
+    unit_id: str = "ICU-EAST"
+    objective: str = (
+        "Predict 24h bed occupancy and evaluate capacity surge risk."
+    )
+
+
+async def _run_briefing(hospital_id: str, unit_id: str, objective: str) -> dict:
+    """Run the agent pipeline for one ward and return the AAVA briefing payload."""
+    global _briefing_lock
+    if _briefing_lock is None:
+        _briefing_lock = asyncio.Lock()
+
+    from app.agents.hospital_graph import hospital_agent_graph
+    from app.integrations.briefing_agent import (
+        build_briefing_input,
+        generate_capacity_briefing,
+    )
+
+    request_id = f"BRIEF-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{unit_id}"
+
+    async with _briefing_lock:
+        # 1. Run the full LangGraph pipeline for this ward.
+        state = await hospital_agent_graph.ainvoke(
+            {
+                "request_id": request_id,
+                "hospital_id": hospital_id,
+                "unit_id": unit_id,
+                "objective": objective,
+            }
+        )
+        agent_result = state["agent_result"]
+
+        # 2. Build the exact payload sent to AAVA (for transparency in the UI).
+        aava_input = build_briefing_input(agent_result)
+
+        # 3. Call AAVA; it also persists the request/response to aava_output/.
+        briefing = await generate_capacity_briefing(agent_result)
+
+    return {
+        "status": "SUCCESS",
+        "request_id": request_id,
+        "hospital_id": hospital_id,
+        "unit_id": unit_id,
+        "aava_input": aava_input,
+        "briefing": briefing.model_dump(),
+    }
+
+
+@app.get("/api/briefing")
+async def get_briefing(
+    hospital_id: str = "HOSPITAL-MAIN-01",
+    unit_id: str = "ICU-EAST",
+    objective: str = "Predict 24h bed occupancy and evaluate capacity surge risk.",
+) -> dict:
+    """Run a ward through the pipeline + AAVA and return the live briefing.
+
+    Example:
+        GET /api/briefing?unit_id=GENERAL-MALE
+    """
+    try:
+        return await _run_briefing(hospital_id, unit_id, objective)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "status": "ERROR",
+            "hospital_id": hospital_id,
+            "unit_id": unit_id,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+
+@app.post("/api/briefing")
+async def post_briefing(body: BriefingRequestBody) -> dict:
+    """Same as GET /api/briefing but accepts a JSON body (for the UI)."""
+    try:
+        return await _run_briefing(body.hospital_id, body.unit_id, body.objective)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "status": "ERROR",
+            "hospital_id": body.hospital_id,
+            "unit_id": body.unit_id,
+            "error": f"{type(exc).__name__}: {exc}",
+        }

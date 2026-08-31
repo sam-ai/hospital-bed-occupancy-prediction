@@ -60,22 +60,26 @@ async def _ensure_index(index: str, mapping: dict | None = None) -> None:
 # 1. FETCH HISTORICAL SNAPSHOTS FROM ELASTICSEARCH
 # ============================================================================
 async def fetch_snapshots_from_elasticsearch(
-    hospital_id: str, unit_id: str, limit: int = 48
+    hospital_id: str, unit_id: str, limit: int = 48, as_of: str | None = None
 ) -> list[dict]:
     """Retrieves the last N historical snapshots from 'hospital-snapshots' ES index.
 
+    When `as_of` (ISO date/datetime) is provided, only snapshots with
+    timestamp < as_of are considered, so the context window ends at a past
+    point in time (used for historical-anchor / back-dated forecasts).
+
     Returns snapshots in chronological order (oldest -> newest).
     """
+    must = [
+        {"term": {"hospital_id": hospital_id}},
+        {"term": {"census.unit_id": unit_id}},
+    ]
+    if as_of:
+        must.append({"range": {"timestamp": {"lt": as_of}}})
+
     query = {
         "size": limit,
-        "query": {
-            "bool": {
-                "must": [
-                    {"term": {"hospital_id": hospital_id}},
-                    {"term": {"census.unit_id": unit_id}},
-                ]
-            }
-        },
+        "query": {"bool": {"must": must}},
         "sort": [{"timestamp": {"order": "desc"}}],
     }
 
@@ -231,6 +235,7 @@ async def index_multi_horizon_forecasts_to_elasticsearch(
     forecast_points: list[dict],
     total_beds: int,
     anomaly_result: dict | None = None,
+    forecast_date: str | None = None,
 ) -> int:
     """Stores forecast points for a single horizon ('24H', '7D', or '6M') in ES.
 
@@ -238,9 +243,13 @@ async def index_multi_horizon_forecasts_to_elasticsearch(
     upper_bound. Optional: peak_occupancy. predicted_occupied_beds is derived
     from predicted_occupancy * total_beds.
 
+    `forecast_date` (YYYY-MM-DD) overrides the stamped/keyed date so callers can
+    persist back-dated (historical-anchor) forecasts without overwriting the
+    live "today" forecast. Defaults to the current UTC date.
+
     Returns the number of indexed documents.
     """
-    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today_str = forecast_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     anomaly_map = _anomaly_map_by_step(anomaly_result or {})
 
     await _ensure_index(FORECAST_INDEX, FORECAST_INDEX_MAPPING)

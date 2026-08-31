@@ -2,12 +2,13 @@
 
 import React, { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import dynamic from "next/dynamic";
-import { Film, RotateCcw, Zap, Shield, TrendingUp } from "lucide-react";
+import { Film, RotateCcw, Zap, Shield, TrendingUp, Sparkles } from "lucide-react";
 import ThemeToggle, { type Theme } from "@/components/ui/ThemeToggle";
 import ApprovalModal from "@/components/ui/ApprovalModal";
 import StatusPanel from "@/components/ui/StatusPanel";
 import ERAdmissionsPanel from "@/components/ERAdmissionsPanel";
 import BedAssignmentsPanel from "@/components/BedAssignmentsPanel";
+import BriefingPanel, { type BriefingResponse } from "@/components/BriefingPanel";
 import {
   BedState,
   Patient3D,
@@ -159,9 +160,32 @@ export default function Dashboard() {
   const [staffAlertsToken, setStaffAlertsToken] = useState(0);
   const [selectedWard, setSelectedWard] = useState("ICU-EAST");
   const [patientFlow, setPatientFlow] = useState<PatientFlowResponse | null>(null);
+  const [showBriefing, setShowBriefing] = useState(false);
+  const [briefingLoading, setBriefingLoading] = useState(false);
+  const [briefingData, setBriefingData] = useState<BriefingResponse | null>(null);
 
   const handleFocusBed = useCallback((bedId: string) => {
     setFocusBedRequest({ bedId, token: Date.now() });
+  }, []);
+
+  /* ─── AAVA capacity briefing (runs the ward pipeline + AAVA agent) ─── */
+  const fetchBriefing = useCallback(async (ward: string) => {
+    setShowBriefing(true);
+    setBriefingLoading(true);
+    setBriefingData(null);
+    try {
+      const res = await fetch(`${API_URL}/api/briefing`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ unit_id: ward }),
+      });
+      const json: BriefingResponse = await res.json();
+      setBriefingData(json);
+    } catch (e) {
+      setBriefingData({ status: "ERROR", unit_id: ward, error: String(e) });
+    } finally {
+      setBriefingLoading(false);
+    }
   }, []);
 
   /* ─── Ward-aware patient flow (24h anticipated admissions/discharges) ─── */
@@ -631,6 +655,9 @@ export default function Dashboard() {
           <button onClick={() => setShowForecast((v) => !v)} className="sidebar-btn-ghost w-full" style={{ gap: 8 }}>
             <TrendingUp size={15} /> {showForecast ? "Hide Forecast" : "Forecast Timeline"}
           </button>
+          <button onClick={() => fetchBriefing(selectedWard)} className="sidebar-btn-ghost w-full" disabled={briefingLoading} style={{ gap: 8, color: "#a78bfa" }}>
+            <Sparkles size={15} /> {briefingLoading ? "Generating Briefing…" : "AI Capacity Briefing"}
+          </button>
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={resetFloor} className="sidebar-btn-ghost" style={{ flex: 1, gap: 6, fontSize: 12 }} disabled={playbackStatus.active}>
               ↺ Reset Floor
@@ -690,6 +717,15 @@ export default function Dashboard() {
         next24h={patientFlow?.next_24h ?? null}
       />
 
+      {showBriefing && (
+        <BriefingPanel
+          wardLabel={selectedWard}
+          loading={briefingLoading}
+          data={briefingData}
+          onClose={() => setShowBriefing(false)}
+          onRefresh={() => fetchBriefing(selectedWard)}
+        />
+      )}
       <BedAssignmentsPanel
         beds={beds}
         patients={uniquePatients}

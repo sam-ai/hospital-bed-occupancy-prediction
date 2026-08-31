@@ -1,0 +1,32 @@
+
+> hospital-floor-3d@0.1.0 dev
+> next dev --port 3000
+
+▲ Next.js 16.1.7 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://10.89.94.165:3000
+
+✓ Starting...
+✓ Ready in 2.2s
+ GET / 200 in 3.3s (compile: 2.8s, render: 505ms)
+ GET / 200 in 566ms (compile: 37ms, render: 529ms)
+ GET / 200 in 59ms (compile: 4ms, render: 55ms)
+ GET / 200 in 404ms (compile: 32ms, render: 373ms)
+ GET / 200 in 1408ms (compile: 92ms, render: 1315ms)
+ GET / 200 in 224ms (compile: 20ms, render: 204ms)
+ GET / 200 in 1002ms (compile: 25ms, render: 976ms)
+ GET / 200 in 154ms (compile: 10ms, render: 144ms)
+ GET / 200 in 252ms (compile: 22ms, render: 230ms)
+✓ Compiled in 200ms
+✓ Compiled in 340ms
+✓ Compiled in 577ms
+ GET / 200 in 773ms (compile: 226ms, render: 547ms)
+✓ Compiled in 597ms
+ GET / 200 in 614ms (compile: 178ms, render: 436ms)
+✓ Compiled in 936ms
+ GET / 200 in 90ms (compile: 9ms, render: 81ms)
+ GET / 200 in 514ms (compile: 13ms, render: 502ms)
+ GET / 200 in 174ms (compile: 15ms, render: 159ms)
+ GET / 200 in 1763ms (compile: 53ms, render: 1710ms)
+ GET / 200 in 504ms (compile: 52ms, render: 452ms)
+ GET / 200 in 2.1s (compile: 187ms, render: 1936ms)
