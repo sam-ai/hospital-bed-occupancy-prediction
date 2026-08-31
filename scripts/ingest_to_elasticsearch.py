@@ -91,7 +91,7 @@ class HospitalElasticsearchIngestor:
 
     @staticmethod
     def _generate_doc_id(snapshot: dict[str, Any]) -> str:
-        """Generates a deterministic ID to avoid duplicates (e.g. HOSPITAL-MAIN-01_FLOOR-1_2026-07-22T23:35:12)."""
+        """Generates a deterministic ID to avoid duplicates (e.g. HOSPITAL-MAIN-01_ICU-EAST_2026-07-22T23:35:12)."""
         h_id = snapshot.get("hospital_id", "UNKNOWN")
         u_id = snapshot.get("census", {}).get("unit_id", "UNKNOWN")
         ts = snapshot.get("timestamp", "NO_TS").replace(":", "-").replace(".", "-")
@@ -144,7 +144,7 @@ SAMPLE_SNAPSHOT = {
     "timestamp": "2026-07-22T23:35:12.514944+00:00",
     "hospital_id": "HOSPITAL-MAIN-01",
     "census": {
-        "unit_id": "FLOOR-1",
+        "unit_id": "ICU-EAST",
         "unit_type": "ICU",
         "total_beds": 10,
         "occupied_beds": 6,

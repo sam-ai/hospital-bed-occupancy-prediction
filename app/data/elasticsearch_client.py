@@ -18,7 +18,12 @@ FEATURES_INDEX = "hospital-features"
 FORECAST_INDEX = "hospital-forecast-timeline"
 ACCURACY_INDEX = "hospital-forecast-accuracy"
 
-es_client = AsyncElasticsearch(ELASTICSEARCH_URL)
+es_client = AsyncElasticsearch(
+    ELASTICSEARCH_URL,
+    request_timeout=10,
+    max_retries=3,
+    retry_on_timeout=True,
+)
 
 FORECAST_INDEX_MAPPING = {
     "mappings": {
@@ -174,6 +179,41 @@ async def fetch_accuracy_records(
     except Exception as e:
         print(f"[!] Accuracy query failed ({e}). Returning empty list.")
         return []
+
+
+# ============================================================================
+# 3b. PATIENT FLOW (daily admissions/discharges forecast + source breakdown)
+# ============================================================================
+PATIENT_FLOW_INDEX = "hospital-patient-flow"
+
+PATIENT_FLOW_INDEX_MAPPING = {
+    "mappings": {
+        "properties": {
+            "forecast_date": {"type": "date"},
+            "generated_at": {"type": "date"},
+            "hospital_id": {"type": "keyword"},
+            "unit_id": {"type": "keyword"},
+            "predicted_admissions": {"type": "integer"},
+            "er_direct": {"type": "integer"},
+            "elective": {"type": "integer"},
+            "icu_transfers": {"type": "integer"},
+            "predicted_discharges": {"type": "integer"},
+            "baseline_admissions_90d": {"type": "float"},
+            "baseline_discharges_90d": {"type": "float"},
+        }
+    }
+}
+
+
+async def save_patient_flow_record(record: dict) -> str:
+    """Stores one per-day patient flow forecast record."""
+    await _ensure_index(PATIENT_FLOW_INDEX, PATIENT_FLOW_INDEX_MAPPING)
+    doc_id = (
+        f"FLOW_{record.get('forecast_date', 'X')}_{record.get('hospital_id', 'X')}"
+        f"_{record.get('unit_id', 'X')}"
+    )
+    await es_client.index(index=PATIENT_FLOW_INDEX, id=doc_id, document=record)
+    return doc_id
 
 
 def _anomaly_map_by_step(anomaly_result: dict) -> dict[int, dict]:

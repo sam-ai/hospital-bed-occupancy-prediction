@@ -122,7 +122,7 @@ SCENARIOS: dict[str, ScenarioConfig] = {
 def generate_scenario_data(
     scenario: str = "outbreak_surge",
     hospital_id: str = "HOSPITAL-MAIN-01",
-    unit_id: str = "FLOOR-1",
+    unit_id: str = "ICU-EAST",
     total_beds: int = 10,
     days: int = 30,
     seed: int | None = None,
@@ -292,7 +292,7 @@ def generate_scenario_data(
 def generate_patient_stays(
     snapshots: list[CompleteHospitalSnapshot],
     hospital_id: str = "HOSPITAL-MAIN-01",
-    unit_id: str = "FLOOR-1",
+    unit_id: str = "ICU-EAST",
 ) -> list[dict]:
     """Derives patient-level stay records from the generated snapshot timeline.
 

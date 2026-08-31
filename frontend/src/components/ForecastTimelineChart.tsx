@@ -84,6 +84,8 @@ interface ForecastTimelineChartProps {
   playbackDisabled?: boolean;
   /** Current playback speed multiplier. */
   speed?: number;
+  /** Ward whose patient-flow is shown in the flow card. */
+  unitId?: string;
   /** Called when the user changes playback speed. */
   onSpeedChange?: (speed: number) => void;
 }
@@ -201,6 +203,7 @@ export default function ForecastTimelineChart({
   playbackDisabled = false,
   speed = 1,
   onSpeedChange,
+  unitId = "ICU-EAST",
 }: ForecastTimelineChartProps) {
   const [horizon, setHorizon] = useState<HorizonType>("24H");
   const [data, setData] = useState<ChartDatum[]>([]);
@@ -244,6 +247,17 @@ export default function ForecastTimelineChart({
   const [backtestRunning, setBacktestRunning] = useState(false);
   const [backtestResult, setBacktestResult] = useState<BacktestResponse | null>(null);
   const [patientFlow, setPatientFlow] = useState<PatientFlowResponse | null>(null);
+  const [flowRefreshToken, setFlowRefreshToken] = useState(0);
+
+  const fetchPatientFlow = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/forecast/patient-flow?days=7&unit_id=${unitId}`);
+      const j: PatientFlowResponse = await res.json();
+      setPatientFlow(j);
+    } catch {
+      /* keep last known good flow data */
+    }
+  }, [unitId]);
 
   const fetchData = useCallback(async (h: HorizonType, date: string | null = null) => {
     setLoading(true);
@@ -297,15 +311,15 @@ export default function ForecastTimelineChart({
 
   /* ── Strategy loop: accuracy badge + scenario run ── */
   useEffect(() => {
-    fetch(`${API_URL}/api/forecast/accuracy?horizon_type=24H&days=7`)
+    fetch(`${API_URL}/api/forecast/accuracy?horizon_type=24H&unit_id=${unitId}&days=7`)
       .then((r) => r.json())
       .then((j: AccuracyResponse) => setAccuracy(j))
       .catch(() => {});
-    fetch(`${API_URL}/api/forecast/patient-flow?days=7`)
-      .then((r) => r.json())
-      .then((j: PatientFlowResponse) => setPatientFlow(j))
-      .catch(() => {});
-  }, []);
+  }, [unitId]);
+
+  useEffect(() => {
+    fetchPatientFlow();
+  }, [unitId, flowRefreshToken, fetchPatientFlow]);
 
   const runScenario = useCallback(async () => {
     setScenarioRunning(true);
@@ -584,7 +598,15 @@ export default function ForecastTimelineChart({
         >
           {expanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
         </button>
-        <button onClick={() => fetchData(horizon)} className="sidebar-btn-ghost" title="Refresh" style={{ padding: "4px 6px" }}>
+        <button
+          onClick={() => {
+            fetchData(horizon);
+            setFlowRefreshToken((t) => t + 1);
+          }}
+          className="sidebar-btn-ghost"
+          title="Refresh"
+          style={{ padding: "4px 6px" }}
+        >
           <RefreshCw size={13} />
         </button>
         <button onClick={onClose} className="sidebar-btn-ghost" title="Close" style={{ padding: "4px 6px" }}>
@@ -978,28 +1000,56 @@ export default function ForecastTimelineChart({
       </div>
 
       {/* Patient-flow forecast card (admissions vs discharges) */}
-      {patientFlow && patientFlow.forecast.length > 0 && (
+      {patientFlow && patientFlow.forecast.length > 0 && (() => {
+        const allZero = patientFlow.forecast.every(
+          (f) => f.predicted_admissions === 0 && f.predicted_discharges === 0,
+        );
+        const hasHistory =
+          Array.isArray(patientFlow.recent_history) &&
+          patientFlow.recent_history.some((h) => h.admissions > 0 || h.discharges > 0);
+        const useHistory = allZero && hasHistory;
+        const bars = useHistory
+          ? patientFlow.recent_history.slice(-7).map((h) => ({
+              day: h.day,
+              predicted_admissions: h.admissions,
+              predicted_discharges: h.discharges,
+              net_flow: h.admissions - h.discharges,
+              er_direct: undefined as number | undefined,
+              elective: undefined as number | undefined,
+              icu_transfers: undefined as number | undefined,
+            }))
+          : patientFlow.forecast;
+        return (
         <div style={{ padding: "8px 10px", borderRadius: 8, background: "rgba(148,163,184,0.06)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
             <span style={{ fontSize: 9, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-              7-Day Patient Flow
+              {useHistory ? "7-Day Patient Flow (actual history — forecast unavailable)" : "7-Day Patient Flow"}
             </span>
+            {!useHistory && (
             <span style={{ fontSize: 8, color: "#475569" }}>
               {patientFlow.model === "mean_persistence_fallback" ? "(baseline model)" : "(TimesFM)"}
             </span>
+            )}
             <span style={{ fontSize: 9, color: "#22c55e" }}>▼ discharges</span>
             <span style={{ fontSize: 9, color: "#38bdf8" }}>▲ admissions</span>
           </div>
           <div style={{ display: "flex", gap: 6 }}>
-            {patientFlow.forecast.map((f) => {
+            {bars.map((f) => {
               const maxV = Math.max(
-                ...patientFlow.forecast.map((x) => Math.max(x.predicted_admissions, x.predicted_discharges)),
+                ...bars.map((x) => Math.max(x.predicted_admissions, x.predicted_discharges)),
                 1
               );
               return (
                 <div key={f.day} style={{ flex: 1, textAlign: "center" }}>
                   <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end", height: 44, gap: 2 }}>
-                    <div style={{ height: `${(f.predicted_admissions / maxV) * 100}%`, minHeight: 2, background: "#38bdf8", borderRadius: 2 }} title={`Admissions ~${f.predicted_admissions}`} />
+                    <div
+                      style={{ height: `${(f.predicted_admissions / maxV) * 100}%`, minHeight: 2, background: "#38bdf8", borderRadius: 2 }}
+                      title={
+                        f.er_direct != null
+                          ? `Admissions ~${f.predicted_admissions} (ER ${f.er_direct}, elective ${f.elective ?? 0}, ICU-transfer ${f.icu_transfers ?? 0})`
+                          : `Admissions ~${f.predicted_admissions}`
+                      }
+                    />
                     <div style={{ height: `${(f.predicted_discharges / maxV) * 100}%`, minHeight: 2, background: "#22c55e", borderRadius: 2 }} title={`Discharges ~${f.predicted_discharges}`} />
                   </div>
                   <div style={{ fontSize: 8, color: "#64748b", marginTop: 3 }}>
@@ -1013,7 +1063,8 @@ export default function ForecastTimelineChart({
             })}
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Model comparison table (backtest) */}
       {backtestResult?.models && backtestResult.models.length > 0 && (

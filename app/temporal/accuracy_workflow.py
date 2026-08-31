@@ -24,7 +24,7 @@ with workflow.unsafe.imports_passed_through():
 @activity.defn
 async def run_forecast_accuracy_activity(
     hospital_id: str = "HOSPITAL-MAIN-01",
-    unit_id: str = "FLOOR-1",
+    unit_id: str = "ICU-EAST",
 ) -> dict:
     """Scores today's 24H forecast against today's actual snapshots."""
     now = datetime.now(timezone.utc)
@@ -142,7 +142,7 @@ class ForecastAccuracyWorkflow:
     """Cron schedule: '50 23 * * *' — nightly forecast vs actual scoring."""
 
     @workflow.run
-    async def run(self, hospital_id: str = "HOSPITAL-MAIN-01", unit_id: str = "FLOOR-1") -> dict:
+    async def run(self, hospital_id: str = "HOSPITAL-MAIN-01", unit_id: str = "ICU-EAST") -> dict:
         return await workflow.execute_activity(
             run_forecast_accuracy_activity,
             args=[hospital_id, unit_id],

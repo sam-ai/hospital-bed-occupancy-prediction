@@ -118,12 +118,56 @@ export interface PatientFlowDay {
   predicted_admissions: number;
   predicted_discharges: number;
   net_flow: number;
+  er_direct?: number;
+  elective?: number;
+  icu_transfers?: number;
+}
+
+/** Anticipated flows for the next 24 hours vs trailing baseline trend. */
+export interface Next24hFlow {
+  predicted_admissions: number;
+  er_direct: number;
+  elective: number;
+  icu_transfers: number;
+  predicted_discharges: number;
+  admissions_trend: "up" | "down" | "flat";
+  discharges_trend: "up" | "down" | "flat";
+  baseline_admissions: number;
+  baseline_discharges: number;
+  baseline_window_days: number;
 }
 
 export interface PatientFlowResponse {
   hospital_id: string;
   unit_id: string;
   model: string;
+  forecast_date?: string;
+  next_24h?: Next24hFlow;
   forecast: PatientFlowDay[];
   recent_history: Array<{ day: string; admissions: number; discharges: number }>;
+}
+
+/* ── Ward registry (multi-ward dashboard) ── */
+export interface WardLiveSummary {
+  occupied_beds: number | null;
+  blocked_beds: number;
+  admissions_24h: number | null;
+  discharges_24h: number | null;
+  pending_discharges_today: number | null;
+  staff_on_duty: number | null;
+  timestamp: string | null;
+}
+
+export interface WardSummary {
+  unit_id: string;
+  display_name: string;
+  unit_type: string;
+  total_beds: number;
+  admission_mix: { er_direct: number; elective: number; icu_transfers: number };
+  live?: WardLiveSummary;
+}
+
+export interface WardsResponse {
+  hospital_id: string;
+  wards: WardSummary[];
 }

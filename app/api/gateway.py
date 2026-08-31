@@ -119,7 +119,7 @@ def _scale_points_to_scene(points: list[dict]) -> list[dict]:
 async def _fetch_forecast_points(
     horizon_type: str,
     hospital_id: str = "HOSPITAL-MAIN-01",
-    unit_id: str = "FLOOR-1",
+    unit_id: str = "ICU-EAST",
 ) -> list[dict]:
     """Fetches today's (or the latest) forecast points for a horizon from ES."""
     from datetime import datetime, timezone
@@ -453,7 +453,7 @@ async def regenerate_mock_regime(body: MockRegimeBody) -> dict:
                 "bool": {
                     "must": [
                         {"term": {"hospital_id": "HOSPITAL-MAIN-01"}},
-                        {"term": {"census.unit_id": "FLOOR-1"}},
+                        {"term": {"census.unit_id": "ICU-EAST"}},
                     ]
                 }
             }
