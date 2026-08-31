@@ -13,6 +13,7 @@ from temporalio.worker import Worker
 from app.config import TEMPORAL_HOST, TEMPORAL_NAMESPACE, TEMPORAL_TASK_QUEUE
 from app.temporal.activities import (
     execute_approved_recommendation,
+    generate_daily_briefing,
     run_agent,
 )
 from app.temporal.accuracy_workflow import (
@@ -104,6 +105,7 @@ async def run_worker() -> None:
         activities=[
             run_agent,
             execute_approved_recommendation,
+            generate_daily_briefing,
             run_daily_forecast_activity,
             run_weekly_forecast_activity,
             run_monthly_forecast_activity,

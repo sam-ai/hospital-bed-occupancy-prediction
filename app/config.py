@@ -18,3 +18,10 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", "deepseek-ai/DeepSeek-V4-Pro-0813")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://inference.baseten.co/v1")
 
 USE_LLM = os.getenv("USE_LLM", "true").lower() == "true"
+
+# AAVA Agent Platform Settings
+AAVA_BASE_URL = os.getenv("AAVA_BASE_URL", "https://int-ai.aava.ai")
+AAVA_API_KEY = os.getenv("AAVA_API_KEY", "")
+AAVA_BRIEFING_AGENT_ID = os.getenv("AAVA_BRIEFING_AGENT_ID", "56091")
+AAVA_POLL_INTERVAL_SECONDS = float(os.getenv("AAVA_POLL_INTERVAL_SECONDS", "2"))
+AAVA_POLL_TIMEOUT_SECONDS = float(os.getenv("AAVA_POLL_TIMEOUT_SECONDS", "60"))

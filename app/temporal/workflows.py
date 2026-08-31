@@ -4,7 +4,11 @@ from temporalio import workflow
 
 with workflow.unsafe.imports_passed_through():
     from app.models import AgentResult, ExecutionReport, HospitalRequest
-    from app.temporal.activities import execute_approved_recommendation, run_agent
+    from app.temporal.activities import (
+        execute_approved_recommendation,
+        generate_daily_briefing,
+        run_agent,
+    )
 
 
 @workflow.defn
@@ -55,6 +59,17 @@ class HospitalCapacityWorkflow:
             start_to_close_timeout=timedelta(minutes=5),
         )
         self._result = result
+
+        # Generate the AAVA daily capacity briefing for this result.
+        # Failures here are logged but must not fail the whole workflow.
+        try:
+            await workflow.execute_activity(
+                generate_daily_briefing,
+                result,
+                start_to_close_timeout=timedelta(minutes=2),
+            )
+        except Exception as exc:
+            workflow.logger.error("AAVA capacity briefing failed: %s", exc)
 
         # Check Policy Decision for Human-in-the-Loop
         if (
