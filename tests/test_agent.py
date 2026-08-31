@@ -21,12 +21,14 @@ async def test_standalone_agent():
     assert agent_res.request_id == "TEST-LOCAL-01"
     assert agent_res.hospital_id == "HOSPITAL-MAIN-01"
     assert agent_res.unit_id == "ICU-EAST"
-    assert 35 <= agent_res.hospital_context.occupied_beds <= 50  # Seeded random range
+    # Occupancy is sourced from the 10-bed ward mock data (ICU-EAST total_beds=10)
+    assert 0 <= agent_res.hospital_context.occupied_beds <= agent_res.hospital_context.total_beds
     assert agent_res.data_quality.status == "usable"
     assert len(agent_res.external_signals) == 2
     assert agent_res.forecast is not None
     assert len(agent_res.forecast.points) == 24
     assert agent_res.anomaly is not None
+    
     assert agent_res.anomaly.detected is True
     assert agent_res.anomaly.severity == "critical"
     assert len(agent_res.recommendations) == 1

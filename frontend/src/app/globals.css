@@ -367,3 +367,13 @@ body {
 }
 
 .lucide { stroke-width: 1.75; }
+
+
+/* Spin utility for refresh/loading icons */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.spin {
+  animation: spin 0.9s linear infinite;
+}

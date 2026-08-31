@@ -109,9 +109,15 @@ services:
       - OPENAI_MODEL=${OPENAI_MODEL:-deepseek-ai/DeepSeek-V4-Pro-0813}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://inference.baseten.co/v1}
       - USE_LLM=${USE_LLM:-true}
+      - AAVA_BASE_URL=${AAVA_BASE_URL:-https://int-ai.aava.ai}
+      - AAVA_API_KEY=${AAVA_API_KEY:-}
+      - AAVA_BRIEFING_AGENT_ID=${AAVA_BRIEFING_AGENT_ID:-56091}
+      - AAVA_POLL_INTERVAL_SECONDS=${AAVA_POLL_INTERVAL_SECONDS:-2}
+      - AAVA_POLL_TIMEOUT_SECONDS=${AAVA_POLL_TIMEOUT_SECONDS:-60}
     volumes:
       - ./app:/app/app
       - ./data:/app/data
+      - ./aava_output:/app/aava_output
       - hf-cache:/root/.cache/huggingface
     networks:
       - hospital-network
@@ -136,9 +142,15 @@ services:
       - OPENAI_MODEL=${OPENAI_MODEL:-deepseek-ai/DeepSeek-V4-Pro-0813}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://inference.baseten.co/v1}
       - USE_LLM=${USE_LLM:-true}
+      - AAVA_BASE_URL=${AAVA_BASE_URL:-https://int-ai.aava.ai}
+      - AAVA_API_KEY=${AAVA_API_KEY:-}
+      - AAVA_BRIEFING_AGENT_ID=${AAVA_BRIEFING_AGENT_ID:-56091}
+      - AAVA_POLL_INTERVAL_SECONDS=${AAVA_POLL_INTERVAL_SECONDS:-2}
+      - AAVA_POLL_TIMEOUT_SECONDS=${AAVA_POLL_TIMEOUT_SECONDS:-60}
     volumes:
       - ./app:/app/app
       - ./data:/app/data
+      - ./aava_output:/app/aava_output
       - hf-cache:/root/.cache/huggingface
     networks:
       - hospital-network
