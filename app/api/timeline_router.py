@@ -12,6 +12,7 @@ Frontend queries:
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.data.elasticsearch_client import (
@@ -27,7 +28,7 @@ router = APIRouter(prefix="/api/forecast", tags=["Multi-Horizon Forecasts"])
 @router.get("/multi-horizon")
 async def get_multi_horizon_forecast(
     hospital_id: str = "HOSPITAL-MAIN-01",
-    unit_id: str = "FLOOR-1",
+    unit_id: str = "ICU-EAST",
     horizon_type: str = Query("24H", enum=["24H", "7D", "6M"]),
     date: str | None = Query(None, description="Exact forecast_date (YYYY-MM-DD) for back-dated views"),
 ) -> dict:
@@ -139,7 +140,7 @@ async def _fetch_actuals_for_date(
 @router.get("/history-dates")
 async def get_forecast_history_dates(
     hospital_id: str = "HOSPITAL-MAIN-01",
-    unit_id: str = "FLOOR-1",
+    unit_id: str = "ICU-EAST",
     horizon_type: str = Query("24H", enum=["24H", "7D", "6M"]),
     limit: int = Query(14, ge=1, le=60),
 ) -> dict:
@@ -184,7 +185,7 @@ async def get_forecast_history_dates(
 # ============================================================================
 class ScenarioRequest(BaseModel):
     hospital_id: str = "HOSPITAL-MAIN-01"
-    unit_id: str = "FLOOR-1"
+    unit_id: str = "ICU-EAST"
     bed_delta: int = Query(0, ge=-5, le=5)
     elective_deferral_pct: float = Query(0.0, ge=0, le=100)
     er_surge_pct: float = Query(0.0, ge=-50, le=100)
@@ -212,7 +213,7 @@ async def run_scenario(req: ScenarioRequest) -> dict:
 # ============================================================================
 class BacktestRequest(BaseModel):
     hospital_id: str = "HOSPITAL-MAIN-01"
-    unit_id: str = "FLOOR-1"
+    unit_id: str = "ICU-EAST"
     days: int = Query(14, ge=1, le=30)
     persist: bool = True
     persist_curves: bool = False
@@ -248,7 +249,7 @@ async def run_backtest_endpoint(req: BacktestRequest) -> dict:
 @router.get("/accuracy")
 async def get_forecast_accuracy(
     hospital_id: str = "HOSPITAL-MAIN-01",
-    unit_id: str = "FLOOR-1",
+    unit_id: str = "ICU-EAST",
     horizon_type: str = Query("24H", enum=["24H", "7D", "6M"]),
     days: int = Query(7, ge=1, le=30),
 ) -> dict:
@@ -272,21 +273,70 @@ async def get_forecast_accuracy(
 
 
 # ============================================================================
+# WARD REGISTRY (multi-ward dashboard)
+# ============================================================================
+@router.get("/wards")
+async def get_wards(hospital_id: str = "HOSPITAL-MAIN-01") -> dict:
+    """Lists all configured wards with their live census summary."""
+    from app.data.elasticsearch_client import fetch_snapshots_from_elasticsearch
+    from app.data.wards import WARDS
+
+    wards = []
+    for w in WARDS:
+        summary = {
+            "unit_id": w.unit_id,
+            "display_name": w.display_name,
+            "unit_type": w.unit_type,
+            "total_beds": w.total_beds,
+            "admission_mix": {
+                "er_direct": round(w.er_admit_weight, 2),
+                "elective": round(w.elective_weight, 2),
+                "icu_transfers": round(w.transfer_in_weight, 2),
+            },
+        }
+        try:
+            snaps = await fetch_snapshots_from_elasticsearch(
+                hospital_id, w.unit_id, limit=1
+            )
+            if snaps:
+                c = snaps[-1].get("census", {})
+                summary["live"] = {
+                    "occupied_beds": c.get("occupied_beds"),
+                    "blocked_beds": c.get("blocked_beds", 0),
+                    "admissions_24h": c.get("admissions_24h"),
+                    "discharges_24h": c.get("discharges_24h"),
+                    "pending_discharges_today": c.get("pending_discharges_today"),
+                    "staff_on_duty": c.get("staff_on_duty"),
+                    "timestamp": snaps[-1].get("timestamp"),
+                }
+        except Exception:
+            pass
+        wards.append(summary)
+
+    return {"hospital_id": hospital_id, "wards": wards}
+
+
+# ============================================================================
 # PATIENT-FLOW FORECAST (daily admissions & discharges)
 # ============================================================================
 @router.get("/patient-flow")
 async def get_patient_flow_forecast(
     hospital_id: str = "HOSPITAL-MAIN-01",
-    unit_id: str = "FLOOR-1",
+    unit_id: str = "ICU-EAST",
     days: int = Query(7, ge=1, le=14),
 ) -> dict:
     """7-day admissions vs discharges forecast derived from occupancy history."""
     from app.data.elasticsearch_client import fetch_snapshots_from_elasticsearch
-    from app.forecasting.flow_service import run_patient_flow_forecast
+    from app.forecasting.flow_service import (
+        persist_patient_flow_forecast,
+        run_patient_flow_forecast,
+    )
 
     snapshots = await fetch_snapshots_from_elasticsearch(
         hospital_id, unit_id, limit=800
     )
-    return await run_patient_flow_forecast(
+    result = await run_patient_flow_forecast(
         snapshots, hospital_id, unit_id, days=days
     )
+    await persist_patient_flow_forecast(result)
+    return JSONResponse(content=result, headers={"Cache-Control": "no-store"})

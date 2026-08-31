@@ -2,13 +2,24 @@
 
 import React from "react";
 import { BedState, Patient3D } from "@/types/hospital";
-import { Activity, Wifi, WifiOff, Users } from "lucide-react";
+import { Next24hFlow } from "@/types/forecast";
+import { Activity, Wifi, WifiOff, Users, ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 
 interface StatusPanelProps {
   beds: BedState[];
   patients: Patient3D[];
   isConnected: boolean;
   lastEvent: string | null;
+  /** Selected ward label shown in the header badge. */
+  wardLabel?: string;
+  /** Anticipated next-24h admissions/discharges for the selected ward. */
+  next24h?: Next24hFlow | null;
+}
+
+function TrendArrow({ trend }: { trend: "up" | "down" | "flat" }) {
+  if (trend === "up") return <ArrowUpRight size={12} style={{ color: "#f87171" }} />;
+  if (trend === "down") return <ArrowDownRight size={12} style={{ color: "#4ade80" }} />;
+  return <Minus size={12} className="text-[color:var(--muted-foreground)]" />;
 }
 
 /** HUD overlay showing real-time hospital statistics. */
@@ -17,6 +28,8 @@ export default function StatusPanel({
   patients,
   isConnected,
   lastEvent,
+  wardLabel = "ICU-EAST",
+  next24h = null,
 }: StatusPanelProps) {
   const totalBeds = beds.length;
   const occupiedBeds = beds.filter((b) => b.isOccupied).length;
@@ -34,7 +47,7 @@ export default function StatusPanel({
       <div className="flex items-center justify-between mb-4">
         <h2 className="type-section-title">Floor Status</h2>
         <span className="ui-badge ui-badge-status-idle text-[10px]">
-          ICU-EAST
+          {wardLabel}
         </span>
       </div>
 
@@ -96,6 +109,44 @@ export default function StatusPanel({
           </span>
         </div>
       </div>
+
+      {/* Next-24H anticipated flows */}
+      {next24h && (
+        <div
+          className="pt-3 mb-3"
+          style={{ borderTop: "1px solid var(--border)" }}
+        >
+          <p className="type-meta text-[color:var(--muted-foreground)] mb-2 flex items-center gap-1.5">
+            <Activity size={11} />
+            Next 24H Anticipated
+          </p>
+          <div className="flex justify-between items-center mb-1.5">
+            <span className="type-meta">Admissions</span>
+            <span className="flex items-center gap-1">
+              <span className="ui-badge ui-badge-status-connected text-[10px]">
+                ~{next24h.predicted_admissions}
+              </span>
+              <TrendArrow trend={next24h.admissions_trend} />
+            </span>
+          </div>
+          {(next24h.er_direct > 0 || next24h.icu_transfers > 0 || next24h.elective > 0) && (
+            <p className="type-meta mb-2" style={{ fontSize: 9, color: "var(--muted-foreground)", paddingLeft: 8 }}>
+              {next24h.er_direct > 0 && `${next24h.er_direct} ER · `}
+              {next24h.icu_transfers > 0 && `${next24h.icu_transfers} ICU-transfer · `}
+              {next24h.elective > 0 && `${next24h.elective} elective`}
+            </p>
+          )}
+          <div className="flex justify-between items-center mb-1">
+            <span className="type-meta">Discharges</span>
+            <span className="flex items-center gap-1">
+              <span className="ui-badge ui-badge-status-running text-[10px]">
+                ~{next24h.predicted_discharges}
+              </span>
+              <TrendArrow trend={next24h.discharges_trend} />
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Occupancy grid mini */}
       <div className="flex gap-1 mb-4">

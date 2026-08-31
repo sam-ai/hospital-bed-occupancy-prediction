@@ -22,6 +22,7 @@ import {
 } from "@/types/hospital";
 import type { HorizonType } from "@/types/forecast";
 import type { ChartDatum } from "@/components/ForecastTimelineChart";
+import { PatientFlowResponse } from "@/types/forecast";
 
 const HospitalFloor = dynamic(() => import("@/components/3d/HospitalFloor"), {
   ssr: false,
@@ -156,10 +157,22 @@ export default function Dashboard() {
   const [focusBedRequest, setFocusBedRequest] = useState<{ bedId: string; token: number } | null>(null);
   const [staffAlerts, setStaffAlerts] = useState<StaffNotification[]>([]);
   const [staffAlertsToken, setStaffAlertsToken] = useState(0);
+  const [selectedWard, setSelectedWard] = useState("ICU-EAST");
+  const [patientFlow, setPatientFlow] = useState<PatientFlowResponse | null>(null);
 
   const handleFocusBed = useCallback((bedId: string) => {
     setFocusBedRequest({ bedId, token: Date.now() });
   }, []);
+
+  /* ─── Ward-aware patient flow (24h anticipated admissions/discharges) ─── */
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_URL}/api/forecast/patient-flow?unit_id=${selectedWard}&days=7`)
+      .then((r) => r.json())
+      .then((j: PatientFlowResponse) => { if (!cancelled) setPatientFlow(j); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [selectedWard]);
 
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -530,7 +543,7 @@ export default function Dashboard() {
       await fetch(`${API_URL}/api/trigger-capacity-check`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ request_id: `REQ-${Date.now()}`, hospital_id: "HOSPITAL-MAIN-01", unit_id: "ICU-EAST", objective: "Predict 24h bed occupancy." }),
+        body: JSON.stringify({ request_id: `REQ-${Date.now()}`, hospital_id: "HOSPITAL-MAIN-01", unit_id: selectedWard, objective: `Predict 24h bed occupancy and patient flow for ${selectedWard}.` }),
       });
     } catch { setLastEvent("Error: Failed to connect"); }
   };
@@ -573,6 +586,36 @@ export default function Dashboard() {
           ) : (
             <span className="ui-badge ui-badge-status-idle" style={{ fontSize: 10 }}>○ FLOOR IDLE</span>
           )}
+        </div>
+
+        {/* Ward selector */}
+        <div style={{ marginBottom: 14 }}>
+          <p style={{ fontSize: 10, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Ward</p>
+          <div style={{ display: "flex", gap: 4 }}>
+            {[
+              { id: "ICU-EAST", label: "ICU" },
+              { id: "GENERAL-MALE", label: "Male" },
+              { id: "GENERAL-FEMALE", label: "Female" },
+              { id: "STEP-DOWN", label: "Step-Down" },
+            ].map((w) => (
+              <button
+                key={w.id}
+                onClick={() => setSelectedWard(w.id)}
+                className="sidebar-btn-ghost"
+                style={{
+                  flex: 1,
+                  fontSize: 11,
+                  padding: "5px 2px",
+                  justifyContent: "center",
+                  ...(selectedWard === w.id
+                    ? { background: "var(--primary)", color: "var(--primary-foreground)", borderColor: "var(--primary)" }
+                    : {}),
+                }}
+              >
+                {w.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -638,7 +681,14 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <StatusPanel beds={beds} patients={uniquePatients} isConnected={isConnected} lastEvent={lastEvent} />
+      <StatusPanel
+        beds={beds}
+        patients={uniquePatients}
+        isConnected={isConnected}
+        lastEvent={lastEvent}
+        wardLabel={selectedWard}
+        next24h={patientFlow?.next_24h ?? null}
+      />
 
       <BedAssignmentsPanel
         beds={beds}
@@ -707,6 +757,7 @@ export default function Dashboard() {
           playbackDisabled={playbackStatus.active}
           speed={playbackSpeed}
           onSpeedChange={setPlaybackSpeed}
+          unitId={selectedWard}
         />
       )}
 

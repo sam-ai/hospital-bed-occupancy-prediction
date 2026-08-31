@@ -310,7 +310,7 @@ class DailyForecastWorkflow:
     """Cron schedule: '0 9 * * *' — daily 9:00 AM."""
 
     @workflow.run
-    async def run(self, hospital_id: str = "HOSPITAL-MAIN-01", unit_id: str = "FLOOR-1") -> dict:
+    async def run(self, hospital_id: str = "HOSPITAL-MAIN-01", unit_id: str = "ICU-EAST") -> dict:
         return await workflow.execute_activity(
             run_daily_forecast_activity,
             args=[hospital_id, unit_id],
@@ -323,7 +323,7 @@ class WeeklyForecastWorkflow:
     """Cron schedule: '0 8 * * 1' — every Monday 8:00 AM."""
 
     @workflow.run
-    async def run(self, hospital_id: str = "HOSPITAL-MAIN-01", unit_id: str = "FLOOR-1") -> dict:
+    async def run(self, hospital_id: str = "HOSPITAL-MAIN-01", unit_id: str = "ICU-EAST") -> dict:
         return await workflow.execute_activity(
             run_weekly_forecast_activity,
             args=[hospital_id, unit_id],
@@ -336,7 +336,7 @@ class MonthlyForecastWorkflow:
     """Cron schedule: '0 8 1 * *' — 1st of every month 8:00 AM."""
 
     @workflow.run
-    async def run(self, hospital_id: str = "HOSPITAL-MAIN-01", unit_id: str = "FLOOR-1") -> dict:
+    async def run(self, hospital_id: str = "HOSPITAL-MAIN-01", unit_id: str = "ICU-EAST") -> dict:
         return await workflow.execute_activity(
             run_monthly_forecast_activity,
             args=[hospital_id, unit_id],

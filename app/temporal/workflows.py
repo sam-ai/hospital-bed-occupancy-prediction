@@ -92,7 +92,7 @@ class HospitalCapacityWorkflow:
                     result.recommendation_summary += " [STATUS: REJECTED BY HUMAN]"
                     result.execution_report = ExecutionReport(
                         status="REJECTED",
-                        dispatched_at=workflow.current_time().isoformat(),
+                        dispatched_at=workflow.now().isoformat(),
                     )
             except TimeoutError:
                 workflow.logger.error(
@@ -101,7 +101,7 @@ class HospitalCapacityWorkflow:
                 result.recommendation_summary += " [STATUS: APPROVAL TIMED OUT]"
                 result.execution_report = ExecutionReport(
                     status="SKIPPED",
-                    dispatched_at=workflow.current_time().isoformat(),
+                    dispatched_at=workflow.now().isoformat(),
                 )
 
         self._phase = "COMPLETED"
