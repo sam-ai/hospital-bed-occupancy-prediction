@@ -113,8 +113,9 @@ uv run python scripts/ingest_to_elasticsearch.py
 {hospital_id}_{census.unit_id}_{timestamp}
 ```
 
-**Known limitation:** `gateway.py:455-456` currently purges only `ICU-EAST`
-during regime switch. Use the manual backfill path below for a clean cold start.
+**Known limitation:** The regime switch now purges and regenerates
+all 4 wards (`gateway.py` `regenerate_mock_regime`). Data is generated per-ward
+with ward-specific bed counts and occupancy bands.
 
 ---
 
@@ -170,12 +171,8 @@ asyncio.run(main())
 | `hospital-snapshots` | `hospital_id`, `census.unit_id/unit_type`, `er_arrivals`, `historical_occupancy_48h` | `{h}_{u}_{ts}` | Ingest script / `regenerate_mock_regime` |
 | `hospital-features` | `past_target`, `past_covariates`, `future_covariates` | `FEAT_{date}_{h}_{u}` | Forecast activity |
 | `hospital-forecast-timeline` | `unit_id`, `horizon_type`, `time_step_index`, `predicted_occupancy`, `has_anomaly` | `{date}_{h}_{u}_{horizon}_STEP{idx}` | Forecast activity |
-| `hospital-forecast-accuracy` | `day`, `horizon_type`, `mae`, `bias` | `ACC_{day}_{horizon}_{h}` | Accuracy activity |
+| `hospital-forecast-accuracy` | `day`, `horizon_type`, `mae`, `bias` | `ACC_{day}_{horizon}_{h}_{u}` | Accuracy activity |
 | `hospital-patient-flow` | `unit_id`, `predicted_admissions`, `er_direct`, `elective`, `icu_transfers`, `predicted_discharges`, `baseline_admissions_90d` | `FLOW_{date}_{h}_{u}` | `flow_service.py` |
-
-**Accuracy doc ID note:** Currently missing `unit_id` in the ID pattern
-(`elasticsearch_client.py:149`) — per-ward accuracy records overwrite each other.
-Low priority for hackathon demo.
 
 ---
 
@@ -217,22 +214,28 @@ curl -s 'http://localhost:8000/api/forecast/accuracy?horizon_type=24H&unit_id=IC
 
 ## 8. Constraints & known limitations
 
-- **Single-tenant 10-bed floor:** `app/api/gateway.py:97`
-  `sim_engine = HospitalSimulationEngine(total_beds=10)` is shared across all
-  connections. Dashboards are ward-aware; the 3D floor is not. Acceptable for
-  hackathon demo.
+- **3D is ICU-EAST only (Option A):** `app/api/gateway.py:97`
+  `sim_engine = HospitalSimulationEngine(total_beds=10)` is a single
+  shared singleton. The 3D floor renders 10 ICU beds for the selected ward.
+  Non-ICU wards (`GENERAL-MALE`, `GENERAL-FEMALE`, `STEP-DOWN`) show
+  forecast charts, patient-flow cards, and StatusPanel badges only — no 3D.
 
-- **Regime switch purges only ICU-EAST:** `gateway.py:455-456` hardcodes
-  `{"term":{"census.unit_id":"ICU-EAST"}}` in the purge query. Other wards'
-  old docs accumulate. Workaround: manual `delete_by_query` before regime switch,
-  or accept stale data for non-ICU wards.
+- **Regime switch is global:** `gateway.py` `regenerate_mock_regime` now
+  purges and regenerates all 4 wards in one shot, using ward-specific bed
+  counts and occupancy profiles from `app/data/wards.py`.
 
-- **Schedules target ICU-EAST only:** `scheduled_workflow.py:313,326,339`
-  default `unit_id="ICU-EAST"`. Other wards need separate backfill (see §5).
+- **Schedules target all 4 wards:** `worker.py` `SCHEDULE_DEFINITIONS`
+  expands to 16 schedules (4 wards × 4 cadence types) using
+  `WARD_IDS = ["ICU-EAST", "GENERAL-MALE", "GENERAL-FEMALE", "STEP-DOWN"]`.
+  Each schedule launches its workflow with `(hospital_id, unit_id)` args.
 
 - **`generate_mock_data_10_beds.py` is single-ward:** It writes to a separate
   file (`*_10_beds.json`) that `ingest_to_elasticsearch.py:204` does not
   ingest by default. Use `generate_mock_data.py` for the standard workflow.
+
+- **Elasticsearch 7.17.20 pinned:** The backend client (`pyproject.toml`)
+  uses `elasticsearch==7.17.*` to match the Docker image. All index
+  mappings use ES 7 `body=` parameters. Do NOT upgrade the client to 8.x.
 
 - **ES URL split:** Compose sets `ELASTICSEARCH_URL=http://elasticsearch:9200`
   for backend services; local scripts use `http://localhost:9200`. Both resolve

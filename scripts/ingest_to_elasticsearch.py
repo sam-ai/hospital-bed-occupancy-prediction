@@ -27,6 +27,7 @@ INDEX_MAPPING = {
         "properties": {
             "timestamp": {"type": "date"},
             "hospital_id": {"type": "keyword"},
+            "scenario": {"type": "keyword"},
             "census": {
                 "properties": {
                     "unit_id": {"type": "keyword"},

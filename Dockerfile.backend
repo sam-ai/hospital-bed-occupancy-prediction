@@ -9,9 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies first (cache-friendly layer)
-# Torch is installed separately from the CPU-only wheel index to avoid
-# pulling multi-GB CUDA/NVIDIA dependencies into the image.
-COPY backend/pyproject.toml ./pyproject.toml
+COPY pyproject.toml ./pyproject.toml
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir .
@@ -21,6 +19,9 @@ COPY app/ ./app/
 
 # Copy mock data (for simulation without real hospital systems)
 COPY data/ ./data/
+
+# Copy scripts (for mock generation and ES ingestion)
+COPY scripts/ ./scripts/
 
 # Create directories for volume mount targets (dev mode)
 RUN mkdir -p /app/app /app/data

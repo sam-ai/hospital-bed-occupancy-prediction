@@ -186,9 +186,9 @@ async def get_forecast_history_dates(
 class ScenarioRequest(BaseModel):
     hospital_id: str = "HOSPITAL-MAIN-01"
     unit_id: str = "ICU-EAST"
-    bed_delta: int = Query(0, ge=-5, le=5)
-    elective_deferral_pct: float = Query(0.0, ge=0, le=100)
-    er_surge_pct: float = Query(0.0, ge=-50, le=100)
+    bed_delta: int = 0
+    elective_deferral_pct: float = 0.0
+    er_surge_pct: float = 0.0
 
 
 @router.post("/scenario")
@@ -214,7 +214,7 @@ async def run_scenario(req: ScenarioRequest) -> dict:
 class BacktestRequest(BaseModel):
     hospital_id: str = "HOSPITAL-MAIN-01"
     unit_id: str = "ICU-EAST"
-    days: int = Query(14, ge=1, le=30)
+    days: int = 14
     persist: bool = True
     persist_curves: bool = False
 

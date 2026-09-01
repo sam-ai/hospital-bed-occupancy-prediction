@@ -4,6 +4,7 @@ Shared by the REST endpoints (timeline_router) and the Temporal accuracy
 workflow. All inference reuses TimesFMHospitalPredictor (lazy singleton).
 """
 
+import asyncio
 import math
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -24,14 +25,18 @@ feature_pipeline_168 = TimesFMFeaturePipeline(
     context_window_hours=48, forecast_horizon_hours=168
 )
 _predictor_singleton: TimesFMHospitalPredictor | None = None
+_predictor_lock = asyncio.Lock()
 
 CONTEXT_WINDOW_HOURS = 48
 
 
-def get_predictor() -> TimesFMHospitalPredictor:
+async def get_predictor() -> TimesFMHospitalPredictor:
+    """Lazily initialize and return the TimesFM predictor singleton."""
     global _predictor_singleton
     if _predictor_singleton is None:
-        _predictor_singleton = TimesFMHospitalPredictor()
+        async with _predictor_lock:
+            if _predictor_singleton is None:
+                _predictor_singleton = TimesFMHospitalPredictor()
     return _predictor_singleton
 
 
@@ -54,9 +59,9 @@ async def load_features(hospital_id: str, unit_id: str, persist: bool = False) -
     return features
 
 
-def run_curve(features: dict[str, Any], horizon: int = 168) -> list[dict[str, Any]]:
+async def run_curve(features: dict[str, Any], horizon: int = 168) -> list[dict[str, Any]]:
     """Runs one TimesFM inference and returns hourly point dicts."""
-    predictor = get_predictor()
+    predictor = await get_predictor()
     res = predictor.forecast(
         past_target=features["past_target"],
         past_covariates=features["past_covariates"],

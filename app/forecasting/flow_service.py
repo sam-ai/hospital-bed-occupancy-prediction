@@ -78,12 +78,21 @@ def _daily_flows(snapshots: list[dict]) -> tuple[list[float], list[float], list[
     return admissions, discharges, labels
 
 
-def _forecast_series(series: list[float], horizon_days: int) -> list[int]:
+async def _forecast_series(series: list[float], horizon_days: int) -> list[int]:
     """TimesFM zero-shot on the daily count series (same granularity in/out)."""
-    predictor = get_predictor()
+    predictor = await get_predictor()
     arr = np.array(series[-48:], dtype=np.float32)
     base, _, _ = predictor._run_timesfm_inference(arr, horizon=horizon_days)
-    return [max(0, int(round(float(v)))) for v in base[:horizon_days]]
+    # Coerce NaN/inf to safe fallback (recent mean of input series) to avoid
+    # ValueError when int(round(NaN)) is attempted downstream.
+    fallback = float(np.mean(series)) if series else 0.0
+    safe: list[int] = []
+    for v in base[:horizon_days]:
+        fv = float(v)
+        if fv != fv or fv in (float("inf"), float("-inf")):  # NaN/inf check
+            fv = fallback
+        safe.append(max(0, int(round(fv))))
+    return safe
 
 
 def _split_admission_sources(total_admissions: int, unit_id: str) -> dict[str, int]:
@@ -130,11 +139,11 @@ async def run_patient_flow_forecast(
         dis_pad = [float(np.mean(dis_series or [2]))] * (10 - len(dis_series))
         dis_series = dis_pad + dis_series
 
-    predictor = get_predictor()
+    predictor = await get_predictor()
     model_ready = predictor._ensure_model_loaded()
     if model_ready:
-        pred_adm = _forecast_series(adm_series, days)
-        pred_dis = _forecast_series(dis_series, days)
+        pred_adm = await _forecast_series(adm_series, days)
+        pred_dis = await _forecast_series(dis_series, days)
     else:
         # Fallback: recent-mean persistence
         pred_adm = [int(round(np.mean(adm_series[-7:]))) for _ in range(days)]

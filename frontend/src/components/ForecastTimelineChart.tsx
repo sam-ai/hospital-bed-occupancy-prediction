@@ -262,9 +262,10 @@ export default function ForecastTimelineChart({
   const fetchData = useCallback(async (h: HorizonType, date: string | null = null) => {
     setLoading(true);
     try {
+      const unitParam = unitId || "ICU-EAST";
       const url = date
-        ? `${API_URL}/api/forecast/multi-horizon?horizon_type=${h}&date=${date}`
-        : `${API_URL}/api/forecast/multi-horizon?horizon_type=${h}`;
+        ? `${API_URL}/api/forecast/multi-horizon?horizon_type=${h}&date=${date}&unit_id=${unitParam}`
+        : `${API_URL}/api/forecast/multi-horizon?horizon_type=${h}&unit_id=${unitParam}`;
       const res = await fetch(url);
       const json: MultiHorizonForecastResponse = await res.json();
       setMeta({

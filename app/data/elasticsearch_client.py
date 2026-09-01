@@ -150,7 +150,11 @@ async def save_accuracy_record(record: dict) -> str:
     """Stores one per-day forecast accuracy record."""
     await _ensure_index(ACCURACY_INDEX, ACCURACY_INDEX_MAPPING)
     day = record.get("day", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
-    doc_id = f"ACC_{day}_{record.get('horizon_type', '24H')}_{record.get('hospital_id', 'X')}"
+    doc_id = (
+        f"ACC_{day}_{record.get('horizon_type', '24H')}"
+        f"_{record.get('hospital_id', 'X')}_"
+        f"{record.get('unit_id', 'ICU-EAST')}"
+    )
     await es_client.index(index=ACCURACY_INDEX, id=doc_id, document=record)
     return doc_id
 
@@ -260,6 +264,22 @@ async def index_multi_horizon_forecasts_to_elasticsearch(
         alert = anomaly_map.get(time_step) if horizon_type == "24H" else None
 
         pred_occ = float(pt["predicted_occupancy"])
+        # Guard against NaN/inf in model output: clip to [0, 1] occupancy range.
+        if not (pred_occ == pred_occ):  # NaN check (NaN != NaN)
+            pred_occ = 0.0
+        pred_occ = max(0.0, min(1.0, pred_occ))
+
+        lower_val = float(pt["lower_bound"])
+        upper_val = float(pt["upper_bound"])
+        peak_val = float(pt.get("peak_occupancy", pred_occ))
+        # Coerce NaN/inf in bounds to safe fallbacks
+        if not (lower_val == lower_val):  # NaN
+            lower_val = pred_occ
+        if not (upper_val == upper_val):  # NaN
+            upper_val = pred_occ
+        if not (peak_val == peak_val):  # NaN
+            peak_val = pred_occ
+
         doc = {
             "forecast_date": today_str,
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -269,10 +289,10 @@ async def index_multi_horizon_forecasts_to_elasticsearch(
             "time_step_index": time_step,
             "timestamp": pt["timestamp"],
             "predicted_occupancy": round(pred_occ, 4),
-            "predicted_occupied_beds": int(round(pred_occ * total_beds)),
-            "peak_occupancy": round(float(pt.get("peak_occupancy", pred_occ)), 4),
-            "lower_bound": round(float(pt["lower_bound"]), 4),
-            "upper_bound": round(float(pt["upper_bound"]), 4),
+            "predicted_occupied_beds": max(0, min(total_beds, int(round(pred_occ * total_beds)))),
+            "peak_occupancy": round(peak_val, 4),
+            "lower_bound": round(lower_val, 4),
+            "upper_bound": round(upper_val, 4),
             "has_anomaly": alert is not None,
             "anomaly_severity": alert["severity"] if alert else "none",
             "anomaly_type": alert["anomaly_type"] if alert else None,

@@ -30,51 +30,60 @@ from app.temporal.scheduled_workflow import (
 )
 from app.temporal.workflows import HospitalCapacityWorkflow
 
-SCHEDULE_DEFINITIONS = [
-    (
-        "daily-forecast-9am",
-        DailyForecastWorkflow,
-        run_daily_forecast_activity,
-        "0 9 * * *",
-    ),
-    (
-        "weekly-forecast-mon-8am",
-        WeeklyForecastWorkflow,
-        run_weekly_forecast_activity,
-        "0 8 * * 1",
-    ),
-    (
-        "monthly-forecast-1st-8am",
-        MonthlyForecastWorkflow,
-        run_monthly_forecast_activity,
-        "0 8 1 * *",
-    ),
-    (
-        "nightly-accuracy-2350",
-        ForecastAccuracyWorkflow,
-        run_forecast_accuracy_activity,
-        "50 23 * * *",
-    ),
-]
+WARD_IDS = ["ICU-EAST", "GENERAL-MALE", "GENERAL-FEMALE", "STEP-DOWN"]
+
+SCHEDULE_DEFINITIONS = []
+for ward_id in WARD_IDS:
+    ward_suffix = ward_id.lower().replace("-", "")
+    SCHEDULE_DEFINITIONS.extend([
+        (
+            f"daily-forecast-{ward_suffix}-9am",
+            DailyForecastWorkflow,
+            run_daily_forecast_activity,
+            "0 9 * * *",
+            ward_id,
+        ),
+        (
+            f"weekly-forecast-{ward_suffix}-mon-8am",
+            WeeklyForecastWorkflow,
+            run_weekly_forecast_activity,
+            "0 8 * * 1",
+            ward_id,
+        ),
+        (
+            f"monthly-forecast-{ward_suffix}-1st-8am",
+            MonthlyForecastWorkflow,
+            run_monthly_forecast_activity,
+            "0 8 1 * *",
+            ward_id,
+        ),
+        (
+            f"nightly-accuracy-{ward_suffix}-2350",
+            ForecastAccuracyWorkflow,
+            run_forecast_accuracy_activity,
+            "50 23 * * *",
+            ward_id,
+        ),
+    ])
 
 
 async def _ensure_schedules(client: Client) -> None:
     """Idempotently registers the cron schedules for the forecast workflows."""
-    for schedule_id, workflow_cls, activity_fn, cron in SCHEDULE_DEFINITIONS:
+    for schedule_id, workflow_cls, activity_fn, cron, ward_id in SCHEDULE_DEFINITIONS:
         try:
             await client.create_schedule(
                 schedule_id,
                 Schedule(
                     action=ScheduleActionStartWorkflow(
                         workflow_cls.run,
-                        args=[],
+                        args=["HOSPITAL-MAIN-01", ward_id],
                         id=f"{schedule_id}-workflow",
                         task_queue=TEMPORAL_TASK_QUEUE,
                     ),
                     spec=ScheduleSpec(cron_expressions=[cron]),
                 ),
             )
-            print(f"[✓] Created schedule '{schedule_id}' (cron: {cron})")
+            print(f"[✓] Created schedule '{schedule_id}' (cron: {cron}, ward: {ward_id})")
         except (ScheduleAlreadyRunningError, RPCError) as e:
             already_running = isinstance(e, ScheduleAlreadyRunningError) or (
                 getattr(e, "status", None) == 6

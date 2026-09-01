@@ -19,6 +19,8 @@ from app.agents.fast_track_agent import fast_track_agent
 from app.communications.dispatcher import MultiChannelDispatcher
 from app.config import TEMPORAL_HOST, TEMPORAL_NAMESPACE, TEMPORAL_TASK_QUEUE
 from app.data.elasticsearch_client import FORECAST_INDEX, es_client
+from app.data.mock_regimes import generate_scenario_data
+from app.data.wards import WARDS, WARDS_BY_ID
 from app.models import HospitalRequest
 from app.models.triage import WaitingPatient
 from app.simulation.engine import (
@@ -26,6 +28,7 @@ from app.simulation.engine import (
     HospitalSimulationEngine,
     generate_surge_boarders,
 )
+from elasticsearch.helpers import async_bulk
 from app.temporal.scheduled_workflow import DailyForecastWorkflow
 
 app = FastAPI(
@@ -60,7 +63,11 @@ async def _get_temporal_client():
 # Allow Claw3D frontend (Next.js dev server) to connect
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -96,6 +103,7 @@ class ConnectionManager:
 manager = ConnectionManager()
 sim_engine = HospitalSimulationEngine(total_beds=10)
 playback_lock = asyncio.Lock()
+_ws_ward_context: dict | None = None
 _active_playback_task: asyncio.Task | None = None
 # The 3D demo floor has 10 beds while forecasts target the real unit size,
 # so absolute bed counts are rescaled to scene proportions.
@@ -119,15 +127,17 @@ def _scale_points_to_scene(points: list[dict]) -> list[dict]:
 async def _fetch_forecast_points(
     horizon_type: str,
     hospital_id: str = "HOSPITAL-MAIN-01",
-    unit_id: str = "ICU-EAST",
+    unit_id: str | None = None,
 ) -> list[dict]:
     """Fetches today's (or the latest) forecast points for a horizon from ES."""
+    # Use ward context if provided, otherwise default to ICU-EAST
+    ward_id = unit_id if unit_id else (_ws_ward_context.get("unit_id") if _ws_ward_context else "ICU-EAST")
     from datetime import datetime, timezone
 
     today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     base_filters = [
         {"term": {"hospital_id": hospital_id}},
-        {"term": {"unit_id": unit_id}},
+        {"term": {"unit_id": ward_id}},
         {"term": {"horizon_type": horizon_type}},
     ]
 
@@ -413,31 +423,39 @@ class MockRegimeBody(BaseModel):
 
 async def regenerate_mock_regime(body: MockRegimeBody) -> dict:
     """Generates new regime data, ingests into ES, optionally refreshes forecasts."""
-    import sys
-    from pathlib import Path
-
-    sys.path.insert(0, str(Path(__file__).parent.parent))
-    from app.data.mock_regimes import SCENARIOS, generate_scenario_data
+    from app.data.mock_regimes import SCENARIOS
 
     if body.scenario not in SCENARIOS:
         return {"status": "ERROR", "message": f"Unknown scenario '{body.scenario}'. Options: {list(SCENARIOS)}"}
 
-    dataset = generate_scenario_data(
-        scenario=body.scenario, days=body.days, seed=body.seed
-    )
+    # Loop over all wards for global data consistency
+    all_snapshots = []
+    for ward in WARDS:
+        ward_snaps = generate_scenario_data(
+            scenario=body.scenario,
+            hospital_id="HOSPITAL-MAIN-01",
+            unit_id=ward.unit_id,
+            total_beds=ward.total_beds,
+            days=body.days,
+            seed=body.seed,
+        )
+        all_snapshots.extend(ward_snaps)
+        print(f"[✓] Generated {len(ward_snaps)} snapshots for {ward.unit_id} ({ward.total_beds} beds)")
 
-    # Also emit patient-stay records for the LOS prediction model
+    # Verify ward registry completeness
+    assert len(WARDS_BY_ID) == len(WARDS), "Ward registry mismatch"
+
+    # Emit patient-stay records for the LOS prediction model
     try:
         from app.data.mock_regimes import generate_patient_stays
 
-        stays = generate_patient_stays(dataset)
+        stays = generate_patient_stays(all_snapshots)
         data_dir = Path(__file__).parent.parent / "data"
         data_dir.mkdir(exist_ok=True)
         (data_dir / "patient_stays.json").write_text(json.dumps(stays, indent=2))
         # Invalidate the cached LOS model so it retrains on the new regime
         try:
             from app.services import los_model
-
             los_model.get_los_model.cache_clear()
             los_model._load_training_data.cache_clear()
         except Exception:
@@ -445,23 +463,25 @@ async def regenerate_mock_regime(body: MockRegimeBody) -> dict:
     except Exception as e:
         print(f"[!] Stay generation skipped ({e})")
 
-    # Purge the unit's previous snapshots so regimes replace cleanly
-    await es_client.delete_by_query(
-        index="hospital-snapshots",
-        body={
-            "query": {
-                "bool": {
-                    "must": [
-                        {"term": {"hospital_id": "HOSPITAL-MAIN-01"}},
-                        {"term": {"census.unit_id": "ICU-EAST"}},
-                    ]
-                }
-            }
-        },
-        conflicts="proceed",
-    )
+    # Global purge for all index types to ensure clean state
+    index_names = [
+        "hospital-snapshots",
+        "hospital-forecast-timeline",
+        "hospital-forecast-accuracy",
+        "hospital-features",
+        "hospital-patient-flow",
+    ]
 
-    from elasticsearch.helpers import async_bulk
+    for index_name in index_names:
+        try:
+            await es_client.delete_by_query(
+                index=index_name,
+                body={"query": {"match_all": {}}},
+                refresh=True,
+            )
+            print(f"[✓] Purged {index_name}")
+        except Exception as e:
+            print(f"[!] Purge {index_name} failed: {e}")
 
     # Deterministic doc IDs mirror the ingest script so old-regime docs are overwritten
     def _doc_id(s: dict) -> str:
@@ -473,9 +493,10 @@ async def regenerate_mock_regime(body: MockRegimeBody) -> dict:
 
     actions = [
         {"_index": "hospital-snapshots", "_id": _doc_id(s), "_source": s}
-        for s in (snapshot.model_dump() for snapshot in dataset)
+        for s in (snapshot.model_dump() for snapshot in all_snapshots)
     ]
     success, _ = await async_bulk(es_client, actions)
+    print(f"[✓] Bulk ingested {success} snapshots across all wards")
 
     workflow_id = None
     if body.trigger_forecast:
@@ -614,6 +635,10 @@ async def websocket_simulation_endpoint(websocket: WebSocket) -> None:
             data = await websocket.receive_json()
 
             action = data.get("action", "")
+
+            if action == "SELECT_WARD":
+                # Update ward context for downstream simulation
+                _ws_ward_context = {"unit_id": data.get("unit_id", "ICU-EAST")}
 
             if action == "SUBMIT_HUMAN_APPROVAL":
                 # Relay human approval signal to Temporal workflow

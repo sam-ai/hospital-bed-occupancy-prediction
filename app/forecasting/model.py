@@ -65,23 +65,10 @@ class TimesFMHospitalPredictor:
             import timesfm
 
             print(f"[TimesFM] Loading model on device: {self.device}")
-            self._model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(
+            self._model = timesfm.TimesFM3Forecaster.from_pretrained(
                 self.repo_id,
             )
-            # compile() must run before forecast(); max_horizon=256 covers
-            # the longest horizon used by the pipeline (168h).
-            self._model.compile(
-                timesfm.ForecastConfig(
-                    max_context=1024,
-                    max_horizon=256,
-                    normalize_inputs=True,
-                    use_continuous_quantile_head=True,
-                    force_flip_invariance=True,
-                    infer_is_positive=True,
-                    fix_quantile_crossing=True,
-                )
-            )
-            print("[TimesFM] Model loaded and compiled successfully!")
+            print("[TimesFM] Model loaded successfully!")
             return True
         except Exception as e:
             print(f"[TimesFM] Using fallback inference ({e})")
@@ -184,39 +171,59 @@ class TimesFMHospitalPredictor:
     def _run_timesfm_inference(
         self, past_target: np.ndarray, horizon: int
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Execute official TimesFM model inference.
+        """Execute official TimesFM 3.0 model inference.
 
         Returns:
             (base_point_forecast, p10_lower, p90_upper)
         """
         try:
-            # Real API: forecast(horizon, inputs) -> (point_forecast, quantile_forecast)
-            # point_forecast:  (batch, horizon)
-            # quantile_forecast: (batch, horizon, 10) for quantiles [0.1..0.9]
-            point_forecast, quantile_forecast = self._model.forecast(
+            import timesfm
+
+            # TimesFM 3.0 uses TimesFM3Forecaster with predict() method
+            forecast_output = self._model.predict(
+                context=past_target,
                 horizon=horizon,
-                inputs=[past_target],
             )
 
-            base = np.asarray(point_forecast)[0][:horizon].astype(np.float32)
+            # Extract forecast and quantiles from the output object
+            point_forecast = np.asarray(forecast_output.forecast)
+            quantile_forecast = np.asarray(forecast_output.quantiles)
 
-            quantiles = np.asarray(quantile_forecast)[0][:horizon].astype(np.float32)
-            if quantiles.ndim == 2 and quantiles.shape[1] >= 10:
-                lower = quantiles[:, 0]
-                upper = quantiles[:, -1]
+            base = point_forecast[0][:horizon].astype(np.float32)
+
+            # Check for NaN/Inf in model output
+            if np.isnan(base).any() or np.isinf(base).any():
+                print("[TimesFM] Model returned NaN/Inf, using fallback")
+                return self._simulate_transformer_forward_pass(past_target, horizon)
+
+            # Extract quantile bounds from the quantile heads
+            # quantile_forecast shape: (horizon,) for single quantile or (horizon, num_quantiles) for multiple
+            if quantile_forecast.ndim == 2 and quantile_forecast.shape[1] >= 2:
+                # Assuming we have multiple quantiles, take first and last as bounds
+                lower = quantile_forecast[:, 0]   # First quantile (e.g., 10th percentile)
+                upper = quantile_forecast[:, -1]  # Last quantile (e.g., 90th percentile)
+            elif quantile_forecast.ndim == 1:
+                # Single quantile array - use it as both bounds (not ideal but better than nothing)
+                lower = quantile_forecast
+                upper = quantile_forecast
             else:
-                # Unexpected quantile layout — derive bands from historical volatility
+                # Fallback to deriving bands from historical volatility
                 std = float(np.std(past_target[-12:])) if len(past_target) >= 12 else 0.02
                 steps = np.arange(1, horizon + 1)
                 uncertainty = std + (0.002 * steps)
                 lower = base - (1.645 * uncertainty)
                 upper = base + (1.645 * uncertainty)
 
-            # Enforce lower <= base <= upper (guards against residual
-            # quantile-crossing artifacts from the continuous quantile head)
+            # Enforce lower <= base <= upper
             lower = np.clip(np.minimum(lower, base), 0.0, 1.0).astype(np.float32)
             upper = np.clip(np.maximum(upper, base), 0.0, 1.0).astype(np.float32)
 
+            # Final NaN check
+            if np.isnan(base).any() or np.isnan(lower).any() or np.isnan(upper).any():
+                print("[TimesFM] Final check found NaN, using fallback")
+                return self._simulate_transformer_forward_pass(past_target, horizon)
+
+            print("[TimesFM] Successfully generated forecast with foundation model!")
             return base, lower, upper
         except Exception as e:
             print(f"[TimesFM] Inference error ({e}), using fallback")
